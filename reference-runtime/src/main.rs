@@ -95,6 +95,13 @@ fn run_case(dir: &Path, c: &Case) -> Value {
     run_case_with(dir, c, key(0xee), bpf_loader_upgradeable::id(), false)
 }
 
+/// Opções extras de um caso: outros programas no cache (chamados por CPI) e limite de CU.
+#[derive(Default)]
+struct Extra<'a> {
+    programs: Vec<(Pubkey, &'a str)>,
+    cu_limit: Option<u64>,
+}
+
 /// Bytes da sysvar Rent como o agave entrega em `sol_get_sysvar` (serialização bincode, 17 bytes).
 fn rent_bytes(r: &Rent) -> Vec<u8> {
     #[allow(deprecated)]
@@ -102,9 +109,20 @@ fn rent_bytes(r: &Rent) -> Vec<u8> {
 }
 
 fn run_case_with(dir: &Path, c: &Case, program_id: Pubkey, loader: Pubkey, with_rent: bool) -> Value {
+    run_case_extra(dir, c, program_id, loader, with_rent, &Extra::default())
+}
+
+fn run_case_extra(dir: &Path, c: &Case, program_id: Pubkey, loader: Pubkey, with_rent: bool, extra: &Extra) -> Value {
     let elf = fs::read(dir.join(format!("{}.so", c.program))).unwrap_or_else(|_| panic!("faltando {}.so", c.program));
     let mut mollusk = Mollusk::default();
     mollusk.add_program_with_loader_and_elf(&program_id, &loader, &elf);
+    for (id, name) in &extra.programs {
+        let e = fs::read(dir.join(format!("{name}.so"))).unwrap();
+        mollusk.add_program_with_loader_and_elf(id, &mollusk_svm::program::loader_keys::LOADER_V2, &e);
+    }
+    if let Some(l) = extra.cu_limit {
+        mollusk.compute_budget.compute_unit_limit = l;
+    }
     mollusk.config.rent_exempt_checks = false; // o SolanaStore não cobra rent (ver README)
     mollusk.sysvars.clock.slot = 123_456;
     mollusk.sysvars.clock.epoch_start_timestamp = 1_700_000_000;
@@ -685,6 +703,97 @@ fn token_fixtures(dir: &Path, out_dir: &Path) {
     println!("fixtures/solana/token.json: {} casos", out.len());
 }
 
+// ------------------------------------------------------------------ Associated Token Account (CPI entre programas sBPF)
+
+const ATA_ID: Pubkey = Pubkey::from_str_const("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
+
+/// O programa ATA oficial (sBPF v0) chamando o SPL Token e o system program por CPI: os casos que
+/// o runtime EVM tem de reproduzir com CPI aninhada (programa sBPF → programa sBPF).
+fn ata_fixtures(dir: &Path, out_dir: &Path) {
+    let rent = Rent::default();
+    let mint_rent = rent.minimum_balance(82);
+    let acc_rent = rent.minimum_balance(165);
+    let token_elf = fs::read(dir.join("spl_token.so")).unwrap();
+    let ata_elf = fs::read(dir.join("associated_token.so")).unwrap();
+    let token_prog = (TOKEN_ID, mollusk_svm::program::create_program_account_loader_v2(&token_elf));
+    let system = mollusk_svm::program::keyed_account_for_system_program();
+    let tok = |data: Vec<u8>, lamports: u64| Account { lamports, data, owner: TOKEN_ID, executable: false, rent_epoch: 0 };
+
+    let wallet = key(0x30);
+    let funder = key(0x31);
+    let mint = key(0x32);
+    let other = key(0x33);
+    let auth = key(0x34);
+    let fake_prog = key(0x35);
+    let ata_of = |w: &Pubkey, m: &Pubkey, p: &Pubkey| Pubkey::find_program_address(&[w.as_ref(), p.as_ref(), m.as_ref()], &ATA_ID).0;
+    let ata = ata_of(&wallet, &mint, &TOKEN_ID);
+    let mint_ok = tok(mint_data(Some(auth), 0, 6, None), mint_rent);
+    let rich = account(Pubkey::default(), 10_000_000, vec![]);
+    let empty = account(Pubkey::default(), 0, vec![]);
+    let metas = |funder_signer: bool, ata_key: Pubkey, prog: Pubkey| {
+        vec![
+            AccountMeta::new(funder, funder_signer),
+            AccountMeta::new(ata_key, false),
+            AccountMeta::new_readonly(wallet, false),
+            AccountMeta::new_readonly(mint, false),
+            AccountMeta::new_readonly(system.0, false),
+            AccountMeta::new_readonly(prog, false),
+        ]
+    };
+    let accts = |f: Account, a: (Pubkey, Account), m: Account| vec![(funder, f), a, (wallet, empty.clone()), (mint, m), system.clone(), token_prog.clone()];
+    let t = |name: &'static str, accounts: Vec<(Pubkey, Account)>, metas: Vec<AccountMeta>, data: Vec<u8>| Case { name, program: "associated_token", accounts, metas, data };
+
+    let existing = tok(token_data(mint, wallet, 0, None, 1, None), acc_rent);
+    let fake_ata = ata_of(&wallet, &mint, &fake_prog);
+    let mut fake_accts = accts(rich.clone(), (fake_ata, empty.clone()), mint_ok.clone());
+    fake_accts.push((fake_prog, Account { lamports: 1, data: vec![], owner: mollusk_svm::program::loader_keys::LOADER_V2, executable: true, rent_epoch: 0 }));
+    let cases: Vec<(Case, Option<u64>)> = vec![
+        (t("ata_create", accts(rich.clone(), (ata, empty.clone()), mint_ok.clone()), metas(true, ata, TOKEN_ID), vec![]), None),
+        (t("ata_create_idempotent", accts(rich.clone(), (ata, empty.clone()), mint_ok.clone()), metas(true, ata, TOKEN_ID), vec![1]), None),
+        (t("ata_create_idempotent_existing", accts(rich.clone(), (ata, existing.clone()), mint_ok.clone()), metas(true, ata, TOKEN_ID), vec![1]), None),
+        (t("ata_create_existing", accts(rich.clone(), (ata, existing.clone()), mint_ok.clone()), metas(true, ata, TOKEN_ID), vec![0]), None),
+        (t("ata_idempotent_wrong_owner", accts(rich.clone(), (ata, tok(token_data(mint, other, 0, None, 1, None), acc_rent)), mint_ok.clone()), metas(true, ata, TOKEN_ID), vec![1]), None),
+        (t("ata_wrong_address", accts(rich.clone(), (other, empty.clone()), mint_ok.clone()), metas(true, other, TOKEN_ID), vec![]), None),
+        (t("ata_prefunded", accts(rich.clone(), (ata, account(Pubkey::default(), 1_000, vec![])), mint_ok.clone()), metas(true, ata, TOKEN_ID), vec![]), None),
+        (t("ata_funder_not_signer", accts(rich.clone(), (ata, empty.clone()), mint_ok.clone()), metas(false, ata, TOKEN_ID), vec![]), None),
+        (t("ata_funder_poor", accts(account(Pubkey::default(), 1_000, vec![]), (ata, empty.clone()), mint_ok.clone()), metas(true, ata, TOKEN_ID), vec![]), None),
+        (t("ata_bad_mint", accts(rich.clone(), (ata, empty.clone()), account(Pubkey::default(), 0, vec![])), metas(true, ata, TOKEN_ID), vec![]), None),
+        (t("ata_uninitialized_mint", accts(rich.clone(), (ata, empty.clone()), tok(vec![0; 82], mint_rent)), metas(true, ata, TOKEN_ID), vec![]), None),
+        (t("ata_program_not_cached", fake_accts, metas(true, fake_ata, fake_prog), vec![]), None),
+        (t("ata_invalid_instruction", accts(rich.clone(), (ata, empty.clone()), mint_ok.clone()), metas(true, ata, TOKEN_ID), vec![7]), None),
+        (t("ata_create_low_cu", accts(rich.clone(), (ata, empty.clone()), mint_ok.clone()), metas(true, ata, TOKEN_ID), vec![]), Some(12_000)),
+        (t("ata_create_cu_in_token", accts(rich.clone(), (ata, empty.clone()), mint_ok.clone()), metas(true, ata, TOKEN_ID), vec![]), Some(20_000)),
+    ];
+
+    let elf_hex = [(hex(&token_elf), "elf:spl_token"), (hex(&ata_elf), "elf:associated_token")];
+    let mut out = vec![];
+    for (c, cu) in &cases {
+        let extra = Extra { programs: vec![(TOKEN_ID, "spl_token")], cu_limit: *cu };
+        let mut v = run_case_extra(dir, c, ATA_ID, mollusk_svm::program::loader_keys::LOADER_V2, true, &extra);
+        v.as_object_mut().unwrap().remove("regions");
+        // os ELFs dos programas (dados das contas de programa) viram referências, para o JSON ficar pequeno
+        for path in [&["accounts"][..], &["expect", "accounts"][..]] {
+            let mut node = &mut v;
+            for p in path {
+                node = &mut node[*p];
+            }
+            for a in node.as_array_mut().unwrap() {
+                for (h, r) in &elf_hex {
+                    if a["data"].as_str() == Some(h.as_str()) {
+                        a["data"] = json!(r);
+                    }
+                }
+            }
+        }
+        v["programs"] = json!([{ "id": hex(TOKEN_ID.as_ref()), "name": "spl_token" }]);
+        println!("{:<40} {:<46} cu={:<6} logs={}", c.name, v["expect"]["error"].to_string(), v["expect"]["cu"], v["expect"]["logs"].as_array().map(|l| l.len()).unwrap_or(0));
+        out.push(v);
+    }
+    let body = json!({ "programs": { "associated_token": hex(&ata_elf) }, "ata": hex(ata.as_ref()), "fixtures": out });
+    fs::write(out_dir.join("ata.json"), serde_json::to_string_pretty(&body).unwrap() + "\n").unwrap();
+    println!("fixtures/solana/ata.json: {} casos", out.len());
+}
+
 fn main() {
     let dir = std::env::args().nth(1).expect("uso: sbpf-runtime-reference <dir com os .so>");
     let dir = Path::new(&dir);
@@ -842,4 +951,5 @@ fn main() {
     println!("fixtures/solana/programs.json: {} casos", out.len());
 
     token_fixtures(dir, &out_dir);
+    ata_fixtures(dir, &out_dir);
 }

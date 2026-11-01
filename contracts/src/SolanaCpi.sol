@@ -10,10 +10,11 @@ import {SolanaVM} from "./SolanaVM.sol";
 ///         que o `SolanaRuntime` devolve à VM com `resumeElfVerified`.
 ///
 /// @dev Features do agave consideradas: syscall_parameter_address_restrictions,
-///      virtual_address_space_adjustments, account_data_direct_mapping. Só o system program
-///      (builtin) pode ser chamado por enquanto: CreateAccount, Assign, Transfer e Allocate
-///      (system_processor.rs). Programas sBPF chamados por CPI ainda não são suportados
-///      (E_CPI subcódigo 10). Os códigos de status/erro são os do `SolanaVM`.
+///      virtual_address_space_adjustments, account_data_direct_mapping. O system program (builtin)
+///      roda aqui mesmo: CreateAccount, Assign, Transfer e Allocate (system_processor.rs). Uma CPI
+///      para um programa sBPF volta ao `SolanaRuntime` com status `ST_CALLEE` e a instrução
+///      traduzida; o runtime executa o programa chamado e devolve as contas em `finish`, que faz o
+///      `update_caller_account`. Os códigos de status/erro são os do `SolanaVM`.
 contract SolanaCpi {
     /// @notice Conta da instrução do chamador (uma por chave; repetidas usam a primeira).
     struct Acc {
@@ -29,6 +30,7 @@ contract SolanaCpi {
 
     struct Input {
         bool rust;
+        uint8 depth; // altura do chamador na pilha de instruções (1 = instrução da transação)
         bytes32 programId; // programa chamador
         uint64 maxCu;
         uint64 cu; // consumidas até à syscall
@@ -46,7 +48,19 @@ contract SolanaCpi {
         bool returnDataCleared; // o programa chamado começou (set_return_data(program_id, []))
         Acc[] accounts;
         SolanaVM.Region[] regions;
+        bytes callee; // status ST_CALLEE: abi.encode(programa, dados, chaves, flags, caller, first, lenAddr, sync)
     }
+
+    /// @notice Estado de uma conta da instrução chamada depois de o programa sBPF rodar (na ordem
+    ///         da primeira ocorrência de cada chave nas metas da CPI).
+    struct Post {
+        bytes32 owner;
+        uint64 lamports;
+        bytes data;
+    }
+
+    /// @notice Status de `invoke`: a CPI é para um programa sBPF (o runtime executa e chama `finish`).
+    uint8 public constant ST_CALLEE = 0xff;
 
     // status do SolanaVM
     uint256 private constant ST_ACCESS_VIOLATION = 3;
@@ -63,6 +77,13 @@ contract SolanaCpi {
     uint256 private constant MASK64 = 0xffffffffffffffff;
 
     bytes32 private constant NATIVE_LOADER = 0x058784bf148ba4282fb012574888a9f153a07dadf765c0455c9a970380000000;
+    bytes32 private constant BPF_LOADER_1 = 0x02a8f6914e88a16bbd2395855f6404d9b4f456b7821bb0145749428c00000000; // BPFLoader1111...
+    bytes32 private constant BPF_LOADER_2 = 0x02a8f6914e88a16e395ae128948ffa695693376818dd47435221f3c600000000; // BPFLoader2111...
+    bytes32 private constant BPF_LOADER_3 = 0x02a8f6914e88a1b0e210153ef763ae2b00c2b93d16c124d2c0537a1004800000; // BPFLoaderUpgradeab1e...
+    bytes32 private constant LOADER_V4 = 0x0512b4115151e37aad0a8bc5d3882e7b7fda4cf3d2c028c8cf83361800000000; // LoaderV411111...
+    bytes32 private constant ED25519_PRECOMPILE = 0x037d46d67c93fbbe12f9428f838d40ff0570744927f48a64fcca704480000000;
+    bytes32 private constant SECP256K1_PRECOMPILE = 0x04c6fc20f050ccf05584d7211c9f8cf59ec14785bb166a1e2830e81220000000;
+    bytes32 private constant SECP256R1_PRECOMPILE = 0x06920dec2fea71b5b723814d742da9031c83e75fdb795d568e75478020000000;
     uint256 private constant INVOKE_UNITS = 946; // DEFAULT_INVOCATION_COST
     uint256 private constant SYSTEM_PROGRAM_UNITS = 150;
     uint256 private constant CPI_BYTES_PER_UNIT = 250;
@@ -102,10 +123,12 @@ contract SolanaCpi {
     uint256 private constant LOG_KEYMSG = 4;
     uint256 private constant LOG_INNER_FAIL = 5;
     uint256 private constant LOG_RAW = 6;
+    uint256 private constant LOG_HIDDEN_KEY = 9; // chave para a mensagem de um erro (não vira linha)
 
     /// @dev Estado da syscall em curso.
     struct Ctx {
         bool rust;
+        uint8 depth;
         bytes32 programId;
         uint256 cu;
         uint256 maxCu;
@@ -134,16 +157,50 @@ contract SolanaCpi {
         uint256 infosAddr;
     }
 
-    /// @notice Executa a CPI pendente de uma VM suspensa.
+    /// @notice Executa a CPI pendente de uma VM suspensa (ou devolve ST_CALLEE para um programa sBPF).
     function invoke(Input calldata in_) external view returns (Output memory o) {
-        Ctx memory x;
+        Ctx memory x = _ctx(in_);
+        Cpi memory c;
+        (uint256 st, uint64 err) = _invoke(x, c, in_.args);
+        if (st == ST_CALLEE) o.callee = abi.encode(c.program, c.data, c.keys, c.flags, c.caller, c.first, c.lenAddr, c.sync);
+        _out(x, o, st, err);
+    }
+
+    /// @notice Fim de uma CPI para um programa sBPF: o estado das contas depois do programa chamado
+    ///         (`post`, uma por chave) volta para a transação e para a memória do chamador
+    ///         (`update_caller_account`). `in_.cu` já inclui as CU do programa chamado.
+    function finish(Input calldata in_, bytes calldata callee, Post[] calldata post) external pure returns (Output memory o) {
+        Ctx memory x = _ctx(in_);
+        Cpi memory c;
+        (c.program, c.data, c.keys, c.flags, c.caller, c.first, c.lenAddr, c.sync) =
+            abi.decode(callee, (bytes32, bytes, bytes32[], uint256[], uint256[], uint256[], uint256[], uint256[]));
+        uint256 k;
+        for (uint256 i = 0; i < c.keys.length; i++) {
+            if (c.first[i] != i) continue;
+            Acc memory a = x.accounts[c.caller[i]];
+            Post calldata p = post[k++];
+            a.owner = p.owner;
+            a.lamports = p.lamports;
+            if (a.flags & 4 != 0) continue; // executável: dados não mudam (e não vêm na memória)
+            a.len = uint64(p.data.length);
+            SolanaVM.Region memory e = x.regions[a.dataRegion];
+            if (p.data.length <= e.reserved) e.data = p.data;
+        }
+        (uint256 st, uint64 err) = _cpiFinish(x, c);
+        _out(x, o, st, err);
+    }
+
+    function _ctx(Input calldata in_) private pure returns (Ctx memory x) {
         x.rust = in_.rust;
+        x.depth = in_.depth;
         x.programId = in_.programId;
         x.cu = in_.cu;
         x.maxCu = in_.maxCu;
         x.accounts = in_.accounts;
         x.regions = in_.regions;
-        (uint256 st, uint64 err) = _invoke(x, in_.args);
+    }
+
+    function _out(Ctx memory x, Output memory o, uint256 st, uint64 err) private pure {
         o.status = uint8(st);
         o.err = err;
         o.fault = x.fault;
@@ -154,23 +211,41 @@ contract SolanaCpi {
         o.regions = x.regions;
     }
 
-    function _invoke(Ctx memory x, uint64[5] calldata a) private view returns (uint256 st, uint64 err) {
+    function _invoke(Ctx memory x, Cpi memory c, uint64[5] calldata a) private view returns (uint256 st, uint64 err) {
         if (!_consume(x, INVOKE_UNITS)) return (ST_CU_EXCEEDED, 0);
-        Cpi memory c;
         (st, err) = _cpiHeader(x, c, a[0]);
         if (st != 0) return (st, err);
         (st, err) = _cpiMetas(x, c);
         if (st != 0) return (st, err);
         (st, err) = _cpiSigners(x, c, a[3], a[4]);
         if (st != 0) return (st, err);
-        if (c.program != bytes32(0)) return _cpiErr(10, 0); // só o system program por enquanto
+        (st, err) = _authorized(x, c);
+        if (st != 0) return (st, err);
         (st, err) = _cpiPrepare(x, c);
         if (st != 0) return (st, err);
         (st, err) = _cpiAccounts(x, c, a[1], a[2]);
         if (st != 0) return (st, err);
+        if (c.program != bytes32(0)) {
+            // process_executable_chain: só programas dos loaders sBPF (o runtime roda o programa)
+            (, uint256 pidx) = _findAccount(x, c.program);
+            bytes32 owner = x.accounts[pidx].owner;
+            if (owner != BPF_LOADER_2 && owner != BPF_LOADER_3 && owner != BPF_LOADER_1 && owner != LOADER_V4) return _ie(IE_UNSUPPORTED_PROGRAM_ID, 0);
+            return (ST_CALLEE, 0);
+        }
         (st, err) = _cpiSystem(x, c);
         if (st != 0) return (st, err);
         return _cpiFinish(x, c);
+    }
+
+    /// @dev check_authorized_program: loaders, native loader e precompiles não podem ser chamados
+    ///      por CPI (instruções de gestão do loader upgradeable ainda não são suportadas aqui).
+    function _authorized(Ctx memory x, Cpi memory c) private pure returns (uint256 st, uint64 err) {
+        bytes32 p = c.program;
+        if (p == BPF_LOADER_3) return _cpiErr(10, 0);
+        if (p == NATIVE_LOADER || p == BPF_LOADER_2 || p == BPF_LOADER_1 || p == ED25519_PRECOMPILE || p == SECP256K1_PRECOMPILE || p == SECP256R1_PRECOMPILE) {
+            _log(x, LOG_HIDDEN_KEY, abi.encodePacked(p)); // o SolanaLog escreve a chave na mensagem do erro
+            return _cpiErr(12, 0);
+        }
     }
 
     // ------------------------------------------------------------------ memória da VM
@@ -265,6 +340,7 @@ contract SolanaCpi {
     function _consume(Ctx memory x, uint256 amount) private pure returns (bool ok) {
         if (amount > x.maxCu - x.cu) {
             x.cu = x.maxCu;
+            x.fault = 1 << 129; // dentro da syscall: ComputationalBudgetExceeded
             return false;
         }
         x.cu += amount;
@@ -697,7 +773,7 @@ contract SolanaCpi {
     function _cpiSystem(Ctx memory x, Cpi memory c) private pure returns (uint256 st, uint64 err) {
         (, uint256 pidx) = _findAccount(x, c.program);
         if (x.accounts[pidx].owner != NATIVE_LOADER) return _ie(IE_UNSUPPORTED_PROGRAM_ID, 0);
-        _log(x, LOG_RAW, "Program 11111111111111111111111111111111 invoke [2]");
+        _log(x, LOG_RAW, bytes.concat("Program 11111111111111111111111111111111 invoke [", _dec(uint256(x.depth) + 1), "]"));
         x.returnDataCleared = true;
         (st, err) = _system(x, c);
         if (st == 0) {

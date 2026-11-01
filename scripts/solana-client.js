@@ -148,5 +148,31 @@ function mintSupply(data) {
 }
 const s = (key) => meta(key, true, false);
 
+const ATA_PROGRAM = "0x8c97258f4e2489f1bb3d1029148e0d830b5a1399daff1084048e7bd8dbe9f859"; // ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL
+/// Endereço da conta de token associada (PDA de [carteira, token program, mint] no programa ATA).
+const ataAddress = (wallet, mint) => findPda([ethers.getBytes(wallet), ethers.getBytes(TOKEN_PROGRAM), ethers.getBytes(mint)], ATA_PROGRAM)[0];
+/// Create (dados vazios) ou CreateIdempotent ([1]): contas [pagador (ws), ata (w), carteira, mint, system, token program]
+const ata = {
+  metas: (funder, wallet, mint) => [ws(funder), w(ataAddress(wallet, mint)), r(wallet), r(mint), r(SYSTEM), r(TOKEN_PROGRAM)],
+  create: () => "0x",
+  createIdempotent: () => "0x01",
+};
+
+/// Guarda no Store a imagem v0 pronta de um programa (lida por eth_call e conferida on-chain):
+/// depois disso cada instrução lê a imagem em vez de remontá-la. Devolve o gás de cada transação.
+async function cacheImage(store, signer, programId, chunk = 24575) {
+  const img = ethers.getBytes(await store.program(programId));
+  const gas = [];
+  for (let off = 0, i = 0; off < img.length; off += chunk, i++) {
+    const rc = await (await store.connect(signer).writeImage(programId, i, img.slice(off, off + chunk))).wait();
+    gas.push(Number(rc.gasUsed));
+  }
+  const rc = await (await store.connect(signer).finalizeImage(programId)).wait();
+  gas.push(Number(rc.gasUsed));
+  return gas;
+}
+
 module.exports = {
+  cacheImage,
+  ATA_PROGRAM, ataAddress, ata,
   TOKEN_PROGRAM, MINT_LEN, TOKEN_ACCOUNT_LEN, rentExempt, token, tokenAmount, mintSupply, s, HEAP, INPUT, SYSTEM, keyFor, w, r, ws, u64le, Heap, pdaIx, onCurve, findPda, vaultTransferIx, findVaultIx };

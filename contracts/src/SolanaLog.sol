@@ -25,7 +25,8 @@ enum IE {
 contract SolanaLog {
     /// @notice Como a instrução terminou. kind: 0 sucesso, 1 `Display` do InstructionError
     ///         (ie, custom), 2 SyscallError (sysErr), 3 acesso inválido fora das contas (vaddr, len),
-    ///         4 divisão por zero, 5 profundidade de chamadas, 6 chamada fora do texto, 7 instrução não suportada.
+    ///         4 divisão por zero, 5 profundidade de chamadas, 6 chamada fora do texto, 7 instrução não
+    ///         suportada, 8 CU esgotadas no meio do programa (o agave devolve ProgramFailedToComplete).
     struct Failure {
         uint8 kind;
         uint8 ie;
@@ -51,14 +52,15 @@ contract SolanaLog {
     uint64 private constant E_INSTRUCTION = 13;
     uint64 private constant E_CPI = 14;
 
-    /// @dev Log no formato do agave: invoke, linhas do programa, consumo, return data, sucesso/falha.
-    function render(bytes32 programId, bytes memory logs, uint64 cu, uint64 maxCu, bytes memory returnData, Failure memory f)
+    /// @dev Log no formato do agave: invoke (na altura `depth` da pilha de instruções), linhas do
+    ///      programa, consumo, return data, sucesso/falha.
+    function render(bytes32 programId, uint256 depth, bytes memory logs, uint64 cu, uint64 maxCu, bytes memory returnData, Failure memory f)
         external
         pure
         returns (string memory out)
     {
         string memory pid = _b58(programId);
-        out = string.concat("Program ", pid, " invoke [1]");
+        out = string.concat("Program ", pid, " invoke [", _dec(depth), "]");
         uint256 i;
         while (i + 5 <= logs.length) {
             uint8 kind = uint8(logs[i]);
@@ -81,6 +83,12 @@ contract SolanaLog {
             : string.concat(out, "\nProgram ", pid, " failed: ", _failure(f, logs));
     }
 
+    /// @notice CPI para um programa sBPF que não está no cache de programas (não foi passado ao runtime).
+    function notCached(bytes32 programId, uint256 depth) external pure returns (string memory) {
+        string memory pid = _b58(programId);
+        return string.concat("Program ", pid, " invoke [", _dec(depth), "]\nProgram is not cached\nProgram ", pid, " failed: ", _display(IE.UnsupportedProgramId, 0));
+    }
+
     /// @dev Texto da falha (o que vem depois de "failed: ").
     function _failure(Failure memory f, bytes memory logs) private pure returns (string memory) {
         if (f.kind == 1) return _display(IE(f.ie), f.custom);
@@ -89,6 +97,7 @@ contract SolanaLog {
         if (f.kind == 4) return "Divide by zero";
         if (f.kind == 5) return "Exceeded max BPF to BPF call depth";
         if (f.kind == 6) return "Attempted to call outside of the text segment";
+        if (f.kind == 8) return "exceeded CUs meter at BPF instruction";
         return "Unsupported instruction";
     }
 
@@ -191,8 +200,21 @@ contract SolanaLog {
         if (e == E_INVALID_LENGTH) return "InvalidLength";
         if (e == E_TOO_MANY_SLICES) return "Hashing too many sequences";
         if (e == E_UNIMPLEMENTED) return "syscall not implemented in SolanaVM";
+        if (e & 0xff == E_CPI && (e >> 8) & 0xffffff == 12) {
+            return string.concat("Program ", _b58(_hiddenKey(logs)), " not supported by inner instructions");
+        }
         if (e & 0xff == E_CPI) return _cpiMessage((e >> 8) & 0xffffff, e >> 32);
         return "syscall error";
+    }
+
+    /// @dev Última chave guardada pela CPI numa entrada tipo 9 (não vira linha do log).
+    function _hiddenKey(bytes memory logs) private pure returns (bytes32 key) {
+        uint256 i;
+        while (i + 5 <= logs.length) {
+            uint256 len = (uint256(uint8(logs[i + 1])) << 24) | (uint256(uint8(logs[i + 2])) << 16) | (uint256(uint8(logs[i + 3])) << 8) | uint256(uint8(logs[i + 4]));
+            if (uint8(logs[i]) == 9) key = _b32(logs, i + 5);
+            i += 5 + len;
+        }
     }
 
     /// @dev `Display` do CpiError / SyscallError::BadSeeds.
@@ -205,7 +227,7 @@ contract SolanaLog {
         if (sub == 6) return string.concat("Invoked an instruction with too many accounts (", _dec(n), " > 255)");
         if (sub == 7) return string.concat("Invoked an instruction with data that is too large (", _dec(n), " > 10240)");
         if (sub == 8) return string.concat("Invoked an instruction with too many account info's (", _dec(n), " > 255)");
-        if (sub == 10) return "CPI to sBPF programs is not supported by SolanaVM yet";
+        if (sub == 10) return "BPF loader upgradeable instructions via CPI are not supported by SolanaVM yet";
         if (sub == 11) return string.concat("system program instruction ", _dec(n), " is not supported by SolanaVM yet");
         return "CPI error";
     }

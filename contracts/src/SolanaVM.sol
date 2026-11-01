@@ -34,22 +34,22 @@ contract SolanaVM {
     }
 
     // códigos de `Result.err` quando status == SyscallError (SyscallError do agave)
-    uint64 public constant E_ABORT = 1;
-    uint64 public constant E_PANIC = 2; // mensagem no log (tipo 3)
-    uint64 public constant E_INVALID_STRING = 3;
-    uint64 public constant E_COPY_OVERLAPPING = 4;
-    uint64 public constant E_INVALID_POINTER = 5;
-    uint64 public constant E_RETURN_DATA_TOO_LARGE = 6;
-    uint64 public constant E_UNALIGNED_POINTER = 7;
-    uint64 public constant E_INVALID_LENGTH = 8;
-    uint64 public constant E_UNIMPLEMENTED = 9; // syscall real do agave ainda não implementada aqui
-    uint64 public constant E_ARITHMETIC_OVERFLOW = 10;
-    uint64 public constant E_TOO_MANY_SLICES = 11;
-    uint64 public constant E_UNSUPPORTED_SYSVAR = 12;
+    uint64 private constant E_ABORT = 1;
+    uint64 private constant E_PANIC = 2; // mensagem no log (tipo 3)
+    uint64 private constant E_INVALID_STRING = 3;
+    uint64 private constant E_COPY_OVERLAPPING = 4;
+    uint64 private constant E_INVALID_POINTER = 5;
+    uint64 private constant E_RETURN_DATA_TOO_LARGE = 6;
+    uint64 private constant E_UNALIGNED_POINTER = 7;
+    uint64 private constant E_INVALID_LENGTH = 8;
+    uint64 private constant E_UNIMPLEMENTED = 9; // syscall real do agave ainda não implementada aqui
+    uint64 private constant E_ARITHMETIC_OVERFLOW = 10;
+    uint64 private constant E_TOO_MANY_SLICES = 11;
+    uint64 private constant E_UNSUPPORTED_SYSVAR = 12;
     /// @notice InstructionError devolvido por uma syscall (CPI, gerado pelo SolanaCpi): err = 13 | índice << 8 | custom << 32
-    uint64 public constant E_INSTRUCTION = 13;
+    uint64 private constant E_INSTRUCTION = 13;
     /// @notice erro específico da CPI/PDA (CpiError, SyscallError::BadSeeds): err = 14 | subcódigo << 8 | n << 32
-    uint64 public constant E_CPI = 14;
+    uint64 private constant E_CPI = 14;
 
     /// @notice Região de memória de input. `reserved` ≥ data.length permite crescer (realloc).
     struct Region {
@@ -98,20 +98,20 @@ contract SolanaVM {
     }
 
     /// @notice Prefixo das imagens v0 montadas pelo SolanaLoader.
-    bytes4 public constant IMAGE_V0 = 0x7f534230;
-    uint64 public constant RODATA_START = 0;
-    uint64 public constant BYTECODE_START = 0x100000000;
-    uint64 public constant STACK_START = 0x200000000;
-    uint64 public constant HEAP_START = 0x300000000;
-    uint64 public constant INPUT_START = 0x400000000;
-    uint64 public constant FRAME_SIZE = 4096;
-    uint64 public constant MAX_CALL_DEPTH = 64;
-    uint64 public constant STACK_SIZE = 64 * 4096;
-    uint64 public constant HEAP_SIZE = 32 * 1024;
-    uint256 public constant MAX_REGIONS = 128;
-    uint256 public constant MAX_RETURN_DATA = 1024;
-    uint256 public constant LOG_CAPACITY = 16384;
-    uint256 public constant MAX_ACCOUNT_DATA_LEN = 10 * 1024 * 1024;
+    bytes4 private constant IMAGE_V0 = 0x7f534230;
+    uint64 private constant RODATA_START = 0;
+    uint64 private constant BYTECODE_START = 0x100000000;
+    uint64 private constant STACK_START = 0x200000000;
+    uint64 private constant HEAP_START = 0x300000000;
+    uint64 private constant INPUT_START = 0x400000000;
+    uint64 private constant FRAME_SIZE = 4096;
+    uint64 private constant MAX_CALL_DEPTH = 64;
+    uint64 private constant STACK_SIZE = 64 * 4096;
+    uint64 private constant HEAP_SIZE = 32 * 1024;
+    uint256 private constant MAX_REGIONS = 128;
+    uint256 private constant MAX_RETURN_DATA = 1024;
+    uint256 private constant LOG_CAPACITY = 16384;
+    uint256 private constant MAX_ACCOUNT_DATA_LEN = 10 * 1024 * 1024;
 
     // custos (agave SVMTransactionExecutionCost)
     uint64 private constant SYSCALL_BASE = 100;
@@ -193,7 +193,8 @@ contract SolanaVM {
     uint256 private constant FAULT = 736;
     uint256 private constant FRAMES = 768; // 64 frames × 64 bytes
     uint256 private constant REGTAB = 4864; // MAX_REGIONS × 5 palavras: start, len, host, flags, reserved
-    uint256 private constant VM_BYTES = 4864 + 128 * 160;
+    uint256 private constant LASTREG = 25344; // 4864 + 128 × 160: última região de entrada achada pela busca binária
+    uint256 private constant VM_BYTES = 25376;
 
     uint256 private constant ST_RUNNING = 0x100;
     uint256 private constant ST_SYSCALL = 0x101;
@@ -328,11 +329,15 @@ contract SolanaVM {
         }
         _sparse(vm, 1, s.stack);
         _sparse(vm, 2, s.heap);
+        // return data suspenso: programa que o definiu (32 bytes) || dados
         bytes calldata ret = s.returnData;
-        if (ret.length > MAX_RETURN_DATA) revert BadSnapshot();
-        assembly ("memory-safe") {
-            calldatacopy(mload(add(vm, RETP)), ret.offset, ret.length)
-            mstore(add(vm, RETL), ret.length)
+        if (ret.length > MAX_RETURN_DATA + 32 || (ret.length != 0 && ret.length < 32)) revert BadSnapshot();
+        if (ret.length != 0) {
+            assembly ("memory-safe") {
+                let p := mload(add(vm, RETP))
+                calldatacopy(sub(p, 32), ret.offset, ret.length)
+                mstore(add(vm, RETL), sub(ret.length, 32))
+            }
         }
     }
 
@@ -346,7 +351,7 @@ contract SolanaVM {
         }
         if (cap > size) revert BadSnapshot();
         if (cap == 0) return;
-        uint256 p = _alloc(cap);
+        uint256 p = _alloc(cap + 32) + 32; // palavra anterior: tamanho (resultado sem cópia)
         assembly ("memory-safe") {
             calldatacopy(p, data.offset, cap)
             mstore(add(e, 64), p)
@@ -366,7 +371,7 @@ contract SolanaVM {
         uint256 st;
         uint64 err;
         for (;;) {
-            st = _exec(vm, codeOff, n, type(uint256).max);
+            st = _exec(vm, codeOff, n);
             if (st != ST_SYSCALL) break;
             (st, err) = _syscall(vm, env);
             if (st != 0) break;
@@ -391,26 +396,29 @@ contract SolanaVM {
         r.cu = uint64(cu);
         r.pc = uint64(ip);
         r.fault = fault;
-        r.returnData = _take(vm, RETP, RETL);
-        r.logs = _take(vm, LOGP, LOGL);
+        r.returnData = _take(vm, RETP, RETL, 0);
+        r.logs = _take(vm, LOGP, LOGL, 0);
         r.regions = new bytes[](nInput);
         for (uint256 i = 0; i < nInput; i++) {
             r.regions[i] = _regionBytes(vm, 3 + i);
         }
         if (st == uint256(Status.Cpi)) _snapshot(vm, r.suspended);
+        else r.suspended.returnData = _take(vm, RETP, RETL, 32); // dono do return data (CPI aninhada)
     }
 
-    /// @dev Conteúdo de uma região (os `len` bytes a partir do host; esparsa: os alocados).
+    /// @dev Conteúdo de uma região (os `len` bytes a partir do host; esparsa: os alocados), sem
+    ///      cópia: o buffer da região tem uma palavra livre antes, onde vai o tamanho.
     function _regionBytes(uint256 vm, uint256 i) private pure returns (bytes memory out) {
         uint256 e = vm + REGTAB + i * 160;
         assembly ("memory-safe") {
             let len := mload(add(e, 32))
             let fl := mload(add(e, 96))
             if and(shr(1, fl), 1) { len := shr(64, fl) }
-            out := mload(0x40)
-            mstore(0x40, add(out, and(add(len, 63), not(31))))
-            mstore(out, len)
-            mcopy(add(out, 32), mload(add(e, 64)), len)
+            out := 0x60
+            if len {
+                out := sub(mload(add(e, 64)), 32)
+                mstore(out, len)
+            }
         }
     }
 
@@ -443,7 +451,7 @@ contract SolanaVM {
         s.frames = frames;
         s.stack = _regionBytes(vm, 1);
         s.heap = _regionBytes(vm, 2);
-        s.returnData = _take(vm, RETP, RETL);
+        s.returnData = _take(vm, RETP, RETL, 32); // programa que definiu o return data || dados
     }
 
     // ------------------------------------------------------------------ ELF
@@ -681,11 +689,12 @@ contract SolanaVM {
             mstore(0x40, add(vm, VM_BYTES))
             calldatacopy(vm, calldatasize(), VM_BYTES) // zera
         }
-        uint256 p = _alloc(rodata.length);
+        // só leitura: lida direto do calldata (bit 2), sem cópia para a memória
+        uint256 p;
         assembly ("memory-safe") {
-            calldatacopy(p, rodata.offset, rodata.length)
+            p := rodata.offset
         }
-        _region(vm, 0, RODATA_START, rodata.length, p, 0, rodata.length);
+        _region(vm, 0, RODATA_START, rodata.length, p, 4, rodata.length);
         _region(vm, 1, STACK_START, STACK_SIZE, 0, 3, STACK_SIZE); // esparsa: 256 KiB endereçáveis, alocados ao tocar
         _region(vm, 2, HEAP_START, HEAP_SIZE, 0, 3, HEAP_SIZE);
         uint256 prev = HEAP_START + HEAP_SIZE;
@@ -701,7 +710,7 @@ contract SolanaVM {
             uint256 next = i + 1 < input.length ? uint256(input[i + 1].vaddr) : (1 << 64);
             if (start + reserved > next) reserved = next - start;
             if (reserved < len) revert RegionsNotSorted();
-            p = _alloc(reserved);
+            p = _alloc(reserved + 32) + 32; // palavra anterior: tamanho (resultado sem cópia)
             bytes calldata d = rg.data;
             assembly ("memory-safe") {
                 calldatacopy(p, d.offset, len)
@@ -710,12 +719,13 @@ contract SolanaVM {
             prev = start + len;
         }
         uint256 logs = _alloc(LOG_CAPACITY);
-        uint256 ret = _alloc(MAX_RETURN_DATA);
+        uint256 ret = _alloc(MAX_RETURN_DATA + 32) + 32; // palavra anterior: programa dono do return data
         bytes32 pid = env.programId;
         uint64 maxCu = env.maxCu;
         assembly ("memory-safe") {
             mstore(add(vm, LOGP), logs)
             mstore(add(vm, RETP), ret)
+            mstore(sub(ret, 32), pid)
             mstore(add(vm, PID), pid)
             mstore(add(vm, MAXCU), maxCu)
             mstore(add(vm, NREG), nreg)
@@ -745,28 +755,51 @@ contract SolanaVM {
     }
 
     /// @dev Copia um buffer (ponteiro em `vm+pOff`, tamanho em `vm+lOff`) para `bytes memory`.
-    function _take(uint256 vm, uint256 pOff, uint256 lOff) private pure returns (bytes memory out) {
+    /// @dev Cópia de um buffer da VM, com `pre` bytes de antes do ponteiro (o dono do return data).
+    function _take(uint256 vm, uint256 pOff, uint256 lOff, uint256 pre) private pure returns (bytes memory out) {
         assembly ("memory-safe") {
-            let len := mload(add(vm, lOff))
+            let len := add(mload(add(vm, lOff)), pre)
             out := mload(0x40)
             mstore(0x40, add(out, and(add(len, 63), not(31))))
             mstore(out, len)
-            mcopy(add(out, 32), mload(add(vm, pOff)), len)
+            mcopy(add(out, 32), sub(mload(add(vm, pOff)), pre), len)
         }
     }
 
     // ------------------------------------------------------------------ interpretador
 
-    /// @dev Loop principal em Yul. Executa até parar, até `budget` instruções, ou até uma syscall
+    /// @dev Loop principal em Yul. Executa até parar ou até uma syscall
     ///      (devolve ST_SYSCALL com o imm em vm+SC; o chamador trata e volta a chamar).
-    function _exec(uint256 vm, uint256 codeOff, uint256 n, uint256 budget) private pure returns (uint256 st) {
+    function _exec(uint256 vm, uint256 codeOff, uint256 n) private pure returns (uint256 st) {
         assembly ("memory-safe") {
 
+            // inverte os 8 bytes de x (x < 2^64)
+            function rev64(x) -> y {
+                y := or(shl(8, and(x, 0x00ff00ff00ff00ff)), and(shr(8, x), 0x00ff00ff00ff00ff))
+                y := or(shl(16, and(y, 0x0000ffff0000ffff)), and(shr(16, y), 0x0000ffff0000ffff))
+                y := and(or(shl(32, y), shr(32, y)), MASK64)
+            }
+            // valor little-endian dos `size` primeiros bytes da palavra w
             function le(w, size) -> v {
-                for { let i := 0 } lt(i, size) { i := add(i, 1) } { v := or(v, shl(mul(i, 8), byte(i, w))) }
+                v := and(rev64(shr(192, w)), sub(shl(shl(3, size), 1), 1))
             }
             // entrada da tabela da última região com start <= vaddr (0 se nenhuma)
             function find(vm_, vaddr) -> e {
+                // pilha e heap têm endereço fixo e nenhuma outra região começa dentro delas
+                if lt(sub(vaddr, STACK_START), STACK_SIZE) {
+                    e := add(add(vm_, REGTAB), 160)
+                    leave
+                }
+                if lt(sub(vaddr, HEAP_START), HEAP_SIZE) {
+                    e := add(add(vm_, REGTAB), 320)
+                    leave
+                }
+                // as regiões não se sobrepõem até o espaço reservado: dentro dele, a resposta é a mesma
+                e := mload(add(vm_, LASTREG))
+                if e {
+                    if lt(sub(vaddr, mload(e)), mload(add(e, 128))) { leave }
+                    e := 0
+                }
                 let lo := 0
                 let hi := mload(add(vm_, NREG))
                 for {} lt(lo, hi) {} {
@@ -775,7 +808,10 @@ contract SolanaVM {
                     case 1 { hi := mid }
                     default { lo := add(mid, 1) }
                 }
-                if lo { e := add(add(vm_, REGTAB), mul(sub(lo, 1), 160)) }
+                if lo {
+                    e := add(add(vm_, REGTAB), mul(sub(lo, 1), 160))
+                    if gt(lo, 3) { mstore(add(vm_, LASTREG), e) }
+                }
             }
             // região esparsa: garante que [0, end) está alocado na memória da EVM (dobra, mínimo 8 KiB)
             function touch(e, end) {
@@ -787,7 +823,7 @@ contract SolanaVM {
                         if lt(ncap, 8192) { ncap := 8192 }
                         if lt(ncap, end) { ncap := and(add(end, 8191), not(8191)) }
                         if gt(ncap, mload(add(e, 32))) { ncap := mload(add(e, 32)) }
-                        let p := mload(0x40)
+                        let p := add(mload(0x40), 32) // palavra anterior: tamanho (resultado sem cópia)
                         mstore(0x40, add(p, ncap))
                         calldatacopy(p, calldatasize(), ncap)
                         mcopy(p, mload(add(e, 64)), cap)
@@ -806,7 +842,11 @@ contract SolanaVM {
                         ok := 1
                         let fl := mload(add(e, 96))
                         switch and(and(shr(1, fl), 1), gt(end, shr(64, fl)))
-                        case 0 { w := mload(add(mload(add(e, 64)), off)) }
+                        case 0 {
+                            switch and(fl, 4)
+                            case 0 { w := mload(add(mload(add(e, 64)), off)) }
+                            default { w := calldataload(add(mload(add(e, 64)), off)) }
+                        }
                         default {
                             // esparsa e ainda não alocada: lê zero; se cruza o alocado, aloca
                             if lt(off, shr(64, fl)) {
@@ -833,7 +873,9 @@ contract SolanaVM {
                         if ok {
                             touch(e, end)
                             let p := add(mload(add(e, 64)), off)
-                            for { let i := 0 } lt(i, size) { i := add(i, 1) } { mstore8(add(p, i), byte(sub(31, i), value)) }
+                            // grava os `size` bytes little-endian de value e preserva o resto da palavra
+                            let keep := shr(shl(3, size), not(0))
+                            mstore(p, or(and(mload(p), keep), and(shl(192, rev64(and(value, MASK64))), not(keep))))
                         }
                     }
                 }
@@ -876,21 +918,17 @@ contract SolanaVM {
                     default { hi := mid }
                 }
             }
+            // and(opc, 0x18): 0x00 → 4, 0x08 → 2, 0x10 → 1, 0x18 → 8
             function memsize(opc) -> size {
-                size := 4
-                switch and(opc, 0x18)
-                case 0x08 { size := 2 }
-                case 0x10 { size := 1 }
-                case 0x18 { size := 8 }
+                size := byte(and(shr(3, opc), 3), 0x0402010800000000000000000000000000000000000000000000000000000000)
             }
 
             let regs := vm
             let ip := mload(add(regs, PC))
             let cu := mload(add(regs, CU))
             st := ST_RUNNING
+            // casos em ordem de frequência (programas Rust: mov, stxdw, ldxdw, add, jne/jgt/jeq, call/exit)
             for {} 1 {} {
-                if iszero(budget) { break }
-                budget := sub(budget, 1)
                 st := 0 // qualquer `break` abaixo é uma parada; o fim do corpo volta a RUNNING
                 if iszero(lt(cu, mload(add(regs, MAXCU)))) {
                     st := 4
@@ -910,13 +948,21 @@ contract SolanaVM {
                 switch and(opc, 7)
                 case 7 {
                     // ---------------- ALU64 (imediato estendido com sinal)
-                    let a := mload(dstp)
                     let b := and(signextend(3, imm), MASK64)
                     if and(opc, 8) { b := mload(add(regs, shl(5, shr(4, byte(1, w))))) }
+                    let a := mload(dstp)
                     switch and(opc, 0xf0)
+                    case 0xb0 { a := b }
                     case 0x00 { a := and(add(a, b), MASK64) }
                     case 0x10 { a := and(sub(a, b), MASK64) }
+                    case 0x50 { a := and(a, b) }
+                    case 0x80 { a := and(sub(0, a), MASK64) }
+                    case 0x70 { a := shr(and(b, 63), a) }
+                    case 0x60 { a := and(shl(and(b, 63), a), MASK64) }
                     case 0x20 { a := and(mul(a, b), MASK64) }
+                    case 0x40 { a := or(a, b) }
+                    case 0xa0 { a := xor(a, b) }
+                    case 0xc0 { a := and(sar(and(b, 63), signextend(7, a)), MASK64) }
                     case 0x30 {
                         if iszero(b) {
                             st := 2
@@ -924,11 +970,6 @@ contract SolanaVM {
                         }
                         a := div(a, b)
                     }
-                    case 0x40 { a := or(a, b) }
-                    case 0x50 { a := and(a, b) }
-                    case 0x60 { a := and(shl(and(b, 63), a), MASK64) }
-                    case 0x70 { a := shr(and(b, 63), a) }
-                    case 0x80 { a := and(sub(0, a), MASK64) }
                     case 0x90 {
                         if iszero(b) {
                             st := 2
@@ -936,14 +977,145 @@ contract SolanaVM {
                         }
                         a := mod(a, b)
                     }
-                    case 0xa0 { a := xor(a, b) }
-                    case 0xb0 { a := b }
-                    case 0xc0 { a := and(sar(and(b, 63), signextend(7, a)), MASK64) }
                     default {
                         st := 1
                         break
                     }
                     mstore(dstp, a)
+                }
+                case 3 {
+                    // ---------------- STX: *(size*)(dst + off) = src
+                    if iszero(store(regs, and(add(mload(dstp), offset(w)), MASK64), memsize(opc), mload(add(regs, shl(5, shr(4, byte(1, w))))))) {
+                        st := 3
+                        break
+                    }
+                }
+                case 1 {
+                    // ---------------- LDX: dst = *(size*)(src + off)
+                    let ok, mw := load(regs, and(add(mload(add(regs, shl(5, shr(4, byte(1, w))))), offset(w)), MASK64), memsize(opc))
+                    if iszero(ok) {
+                        st := 3
+                        break
+                    }
+                    mstore(dstp, le(mw, memsize(opc)))
+                }
+                case 5 {
+                    // ---------------- JMP64 / call / callx / exit
+                    // condicionais: 0x10..0x70 e 0xa0..0xd0
+                    if and(shr(shr(4, opc), 0x3cfe), 1) {
+                        let a := mload(dstp)
+                        let b := and(signextend(3, imm), MASK64)
+                        if and(opc, 8) { b := mload(add(regs, shl(5, shr(4, byte(1, w))))) }
+                        switch and(opc, 0xf0)
+                        case 0x50 { a := iszero(eq(a, b)) }
+                        case 0x20 { a := gt(a, b) }
+                        case 0x10 { a := eq(a, b) }
+                        case 0x60 { a := sgt(signextend(7, a), signextend(7, b)) }
+                        case 0x70 { a := iszero(slt(signextend(7, a), signextend(7, b))) }
+                        case 0x30 { a := iszero(lt(a, b)) }
+                        case 0x40 { a := iszero(iszero(and(a, b))) }
+                        case 0xa0 { a := lt(a, b) }
+                        case 0xb0 { a := iszero(gt(a, b)) }
+                        case 0xc0 { a := slt(signextend(7, a), signextend(7, b)) }
+                        default { a := iszero(sgt(signextend(7, a), signextend(7, b))) } // 0xd0
+                        if a { ip := add(ip, offset(w)) }
+                        st := ST_RUNNING
+                        continue
+                    }
+                    switch opc
+                        case 0x85 {
+                            if mload(add(regs, V0)) {
+                                // v0: imm é o hash de uma função (tabela ordenada) ou de uma syscall
+                                let target := lookup(mload(add(regs, V0)), imm)
+                                if eq(target, not(0)) {
+                                    mstore(add(regs, SC), imm)
+                                    st := ST_SYSCALL
+                                    break
+                                }
+                                if iszero(push(regs, ip)) {
+                                    st := 5
+                                    break
+                                }
+                                if iszero(lt(target, n)) {
+                                    st := 6
+                                    break
+                                }
+                                ip := target
+                                st := ST_RUNNING
+                                continue
+                            }
+                            switch shr(4, byte(1, w))
+                            case 0 {
+                                // syscall: o Solidity resolve o hash e executa
+                                mstore(add(regs, SC), imm)
+                                st := ST_SYSCALL
+                                break
+                            }
+                            case 1 {
+                                // chamada interna relativa: alvo = próxima instrução + imm
+                                let target := add(ip, signextend(3, imm))
+                                if iszero(lt(target, n)) {
+                                    st := 1
+                                    break
+                                }
+                                if iszero(push(regs, ip)) {
+                                    st := 5
+                                    break
+                                }
+                                ip := target
+                            }
+                            default {
+                                st := 1
+                                break
+                            }
+                        }
+                        case 0x95 {
+                            let d := mload(add(regs, DEPTH))
+                            if iszero(d) { break } // st = 0: Ok(r0)
+                            d := sub(d, 1)
+                            mstore(add(regs, DEPTH), d)
+                            let f := add(add(regs, FRAMES), shl(6, d))
+                            let s := mload(f)
+                            mstore(add(regs, 192), and(s, MASK64))
+                            mstore(add(regs, 224), and(shr(64, s), MASK64))
+                            mstore(add(regs, 256), and(shr(128, s), MASK64))
+                            mstore(add(regs, 288), shr(192, s))
+                            s := mload(add(f, 32))
+                            mstore(add(regs, 320), and(s, MASK64))
+                            ip := shr(64, s)
+                        }
+                        case 0x05 { ip := add(ip, offset(w)) }
+                        case 0x8d {
+                            // callx: alvo absoluto em reg[dst] (v0: reg[imm], relativo ao endereço do texto);
+                            // o frame é empilhado antes da checagem
+                            let target := div(and(sub(mload(dstp), BYTECODE_START), MASK64), 8)
+                            if mload(add(regs, V0)) {
+                                target := div(and(sub(mload(add(regs, shl(5, and(imm, 0x0f)))), shr(128, mload(add(regs, V0)))), MASK64), 8)
+                            }
+                            if iszero(push(regs, ip)) {
+                                st := 5
+                                break
+                            }
+                            if iszero(lt(target, n)) {
+                                st := 6
+                                break
+                            }
+                            ip := target
+                        }
+                        default {
+                            st := 1
+                            break
+                        }
+                }
+                case 0 {
+                    // ---------------- lddw (0x18): 16 bytes, imm64 = imm | imm2 << 32
+                    if iszero(eq(opc, 0x18)) {
+                        st := 1
+                        break
+                    }
+                    w := calldataload(add(codeOff, shl(3, ip)))
+                    mstore(dstp, or(imm, shl(32, or(or(byte(4, w), shl(8, byte(5, w))), or(shl(16, byte(6, w)), shl(24, byte(7, w)))))))
+                    ip := add(ip, 1)
                 }
                 case 4 {
                     // ---------------- ALU32
@@ -991,111 +1163,6 @@ contract SolanaVM {
                     }
                     mstore(dstp, a)
                 }
-                case 5 {
-                    // ---------------- JMP64 / call / callx / exit
-                    switch opc
-                    case 0x05 { ip := add(ip, offset(w)) }
-                    case 0x95 {
-                        let d := mload(add(regs, DEPTH))
-                        if iszero(d) { break } // st = 0: Ok(r0)
-                        d := sub(d, 1)
-                        mstore(add(regs, DEPTH), d)
-                        let f := add(add(regs, FRAMES), shl(6, d))
-                        let s := mload(f)
-                        mstore(add(regs, 192), and(s, MASK64))
-                        mstore(add(regs, 224), and(shr(64, s), MASK64))
-                        mstore(add(regs, 256), and(shr(128, s), MASK64))
-                        mstore(add(regs, 288), shr(192, s))
-                        s := mload(add(f, 32))
-                        mstore(add(regs, 320), and(s, MASK64))
-                        ip := shr(64, s)
-                    }
-                    case 0x85 {
-                        if mload(add(regs, V0)) {
-                            // v0: imm é o hash de uma função (tabela ordenada) ou de uma syscall
-                            let target := lookup(mload(add(regs, V0)), imm)
-                            if eq(target, not(0)) {
-                                mstore(add(regs, SC), imm)
-                                st := ST_SYSCALL
-                                break
-                            }
-                            if iszero(push(regs, ip)) {
-                                st := 5
-                                break
-                            }
-                            if iszero(lt(target, n)) {
-                                st := 6
-                                break
-                            }
-                            ip := target
-                            st := ST_RUNNING
-                            continue
-                        }
-                        switch shr(4, byte(1, w))
-                        case 0 {
-                            // syscall: o Solidity resolve o hash e executa
-                            mstore(add(regs, SC), imm)
-                            st := ST_SYSCALL
-                            break
-                        }
-                        case 1 {
-                            // chamada interna relativa: alvo = próxima instrução + imm
-                            let target := add(ip, signextend(3, imm))
-                            if iszero(lt(target, n)) {
-                                st := 1
-                                break
-                            }
-                            if iszero(push(regs, ip)) {
-                                st := 5
-                                break
-                            }
-                            ip := target
-                        }
-                        default {
-                            st := 1
-                            break
-                        }
-                    }
-                    case 0x8d {
-                        // callx: alvo absoluto em reg[dst] (v0: reg[imm], relativo ao endereço do texto);
-                        // o frame é empilhado antes da checagem
-                        let target := div(and(sub(mload(dstp), BYTECODE_START), MASK64), 8)
-                        if mload(add(regs, V0)) {
-                            target := div(and(sub(mload(add(regs, shl(5, and(imm, 0x0f)))), shr(128, mload(add(regs, V0)))), MASK64), 8)
-                        }
-                        if iszero(push(regs, ip)) {
-                            st := 5
-                            break
-                        }
-                        if iszero(lt(target, n)) {
-                            st := 6
-                            break
-                        }
-                        ip := target
-                    }
-                    default {
-                        let a := mload(dstp)
-                        let b := and(signextend(3, imm), MASK64)
-                        if and(opc, 8) { b := mload(add(regs, shl(5, shr(4, byte(1, w))))) }
-                        switch and(opc, 0xf0)
-                        case 0x10 { a := eq(a, b) }
-                        case 0x20 { a := gt(a, b) }
-                        case 0x30 { a := iszero(lt(a, b)) }
-                        case 0x40 { a := iszero(iszero(and(a, b))) }
-                        case 0x50 { a := iszero(eq(a, b)) }
-                        case 0x60 { a := sgt(signextend(7, a), signextend(7, b)) }
-                        case 0x70 { a := iszero(slt(signextend(7, a), signextend(7, b))) }
-                        case 0xa0 { a := lt(a, b) }
-                        case 0xb0 { a := iszero(gt(a, b)) }
-                        case 0xc0 { a := slt(signextend(7, a), signextend(7, b)) }
-                        case 0xd0 { a := iszero(sgt(signextend(7, a), signextend(7, b))) }
-                        default {
-                            st := 1
-                            break
-                        }
-                        if a { ip := add(ip, offset(w)) }
-                    }
-                }
                 case 6 {
                     // ---------------- JMP32: compara os 32 bits baixos
                     let a := and(mload(dstp), 0xffffffff)
@@ -1119,38 +1186,12 @@ contract SolanaVM {
                     }
                     if a { ip := add(ip, offset(w)) }
                 }
-                case 1 {
-                    // ---------------- LDX: dst = *(size*)(src + off)
-                    let ok, mw := load(regs, and(add(mload(add(regs, shl(5, shr(4, byte(1, w))))), offset(w)), MASK64), memsize(opc))
-                    if iszero(ok) {
-                        st := 3
-                        break
-                    }
-                    mstore(dstp, le(mw, memsize(opc)))
-                }
                 case 2 {
                     // ---------------- ST: *(size*)(dst + off) = imm (estendido com sinal)
                     if iszero(store(regs, and(add(mload(dstp), offset(w)), MASK64), memsize(opc), signextend(3, imm))) {
                         st := 3
                         break
                     }
-                }
-                case 3 {
-                    // ---------------- STX: *(size*)(dst + off) = src
-                    if iszero(store(regs, and(add(mload(dstp), offset(w)), MASK64), memsize(opc), mload(add(regs, shl(5, shr(4, byte(1, w))))))) {
-                        st := 3
-                        break
-                    }
-                }
-                default {
-                    // ---------------- lddw (0x18): 16 bytes, imm64 = imm | imm2 << 32
-                    if iszero(eq(opc, 0x18)) {
-                        st := 1
-                        break
-                    }
-                    w := calldataload(add(codeOff, shl(3, ip)))
-                    mstore(dstp, or(imm, shl(32, or(or(byte(4, w), shl(8, byte(5, w))), or(shl(16, byte(6, w)), shl(24, byte(7, w)))))))
-                    ip := add(ip, 1)
                 }
                 st := ST_RUNNING
             }
@@ -1222,7 +1263,10 @@ contract SolanaVM {
             let cu := mload(add(vm, CU))
             let maxCu := mload(add(vm, MAXCU))
             switch gt(amount, sub(maxCu, cu))
-            case 1 { mstore(add(vm, CU), maxCu) }
+            case 1 {
+                mstore(add(vm, CU), maxCu)
+                mstore(add(vm, FAULT), shl(129, 1))
+            }
             default {
                 mstore(add(vm, CU), add(cu, amount))
                 ok := 1
@@ -1276,14 +1320,21 @@ contract SolanaVM {
                         if lt(ncap, 8192) { ncap := 8192 }
                         if lt(ncap, end) { ncap := and(add(end, 8191), not(8191)) }
                         if gt(ncap, mload(add(e, 32))) { ncap := mload(add(e, 32)) }
-                        let p := mload(0x40)
+                        let p := add(mload(0x40), 32)
                         mstore(0x40, add(p, ncap))
                         calldatacopy(p, calldatasize(), ncap)
                         mcopy(p, mload(add(e, 64)), cap)
                         mstore(add(e, 64), p)
                         mstore(add(e, 96), or(and(fl, 3), shl(64, ncap)))
                     }
-                    host := add(mload(add(e, 64)), off)
+                    switch and(fl, 4)
+                    case 0 { host := add(mload(add(e, 64)), off) }
+                    default {
+                        // região no calldata (só leitura): cópia do trecho pedido
+                        host := mload(0x40)
+                        mstore(0x40, add(host, and(add(len, 31), not(31))))
+                        calldatacopy(host, add(mload(add(e, 64)), off), len)
+                    }
                 }
             }
             // bit 129: falha dentro de uma syscall (o agave não esgota o medidor nesse caso)
@@ -1544,8 +1595,10 @@ contract SolanaVM {
         (st, err, host) = _slice(vm, addr, len, 1, false);
         if (st != 0) return (st, err);
         assembly ("memory-safe") {
-            if len { mcopy(mload(add(vm, RETP)), host, len) }
+            let p := mload(add(vm, RETP))
+            if len { mcopy(p, host, len) }
             mstore(add(vm, RETL), len)
+            mstore(sub(p, 32), mload(add(vm, PID)))
         }
         _setR0(vm, 0);
     }
@@ -1567,8 +1620,9 @@ contract SolanaVM {
             bool nonOverlapping = to > pidHost ? to - pidHost >= 32 : pidHost - to >= length;
             if (!nonOverlapping) return (uint256(Status.SyscallError), E_COPY_OVERLAPPING);
             assembly ("memory-safe") {
-                mcopy(to, mload(add(vm, RETP)), length)
-                mstore(pidHost, mload(add(vm, PID)))
+                let p := mload(add(vm, RETP))
+                mcopy(to, p, length)
+                mstore(pidHost, mload(sub(p, 32)))
             }
         }
         _setR0(vm, retLen);

@@ -12,8 +12,9 @@ const INCINERATOR = "0x003390728d34116079bdc911bfff00dbd44d2ecdccf79ca6e10038e10
 const le64 = (n) => ethers.toBeHex(n, 8).slice(2).match(/../g).reverse().join("");
 
 
-const { SYSTEM, keyFor, w, r, ws, s, findPda, vaultTransferIx, findVaultIx, TOKEN_PROGRAM, MINT_LEN, TOKEN_ACCOUNT_LEN, rentExempt, token, tokenAmount, mintSupply } = require("../../scripts/solana-client");
+const { SYSTEM, keyFor, w, r, ws, s, findPda, vaultTransferIx, findVaultIx, TOKEN_PROGRAM, MINT_LEN, TOKEN_ACCOUNT_LEN, rentExempt, token, tokenAmount, mintSupply, ATA_PROGRAM, ataAddress, ata, cacheImage } = require("../../scripts/solana-client");
 const tokenElf = require("../../fixtures/solana/token.json").programs.spl_token;
+const ataElf = require("../../fixtures/solana/ata.json").programs.associated_token;
 
 async function deployStore() {
   const { vm, rt } = await deploySolanaRuntime();
@@ -151,7 +152,7 @@ describe("SolanaStore — programas e contas Solana na EVM, instruções por tra
     await expect(store.connect(bob).invoke(programId, [ws(target)], "0x00", 0)).to.be.revertedWithCustomError(store, "NotSigner");
     await store.connect(alice).invoke(programId, [ws(target)], "0x00", 0);
     await expect(store.connect(alice).invoke(programId, [w(target)], "0x00", 1_400_001)).to.be.revertedWithCustomError(store, "ComputeLimitTooHigh");
-    await expect(store.connect(alice).invoke(programId, [w(target)], "0x00", 10)).to.be.revertedWithCustomError(store, "ProgramFailed").withArgs(38, 0, () => true); // ComputationalBudgetExceeded
+    await expect(store.connect(alice).invoke(programId, [w(target)], "0x00", 10)).to.be.revertedWithCustomError(store, "ProgramFailed").withArgs(41, 0, () => true); // ProgramFailedToComplete: o medidor acaba numa instrução (fora de syscall), como no agave
     await expect(store.connect(alice).invoke(keyFor(dev.address, 50), [], "0x", 0)).to.be.revertedWithCustomError(store, "UnknownProgram");
   });
 
@@ -247,7 +248,21 @@ describe("SolanaStore — programas e contas Solana na EVM, instruções por tra
     await send(alice, [w(aliceAcc), r(mint)], token.initializeAccount3(payer));
     await send(bob, [w(bobAcc), r(mint)], token.initializeAccount3(keyFor(bob.address, 0)));
     gas.mintTo = Number(await send(alice, [w(mint), w(aliceAcc), s(payer)], token.mintTo(1_000_000)));
-    gas.transfer = Number(await send(alice, [w(aliceAcc), w(bobAcc), s(payer)], token.transfer(400_000)));
+    gas.transfer = Number(await send(alice, [w(aliceAcc), w(bobAcc), s(payer)], token.transfer(300_000)));
+    // imagem pronta guardada (conferida contra a remontagem): a mesma transferência fica mais barata
+    const img = ethers.getBytes(await store.program(TOKEN_PROGRAM));
+    await expect(store.connect(alice).writeImage(TOKEN_PROGRAM, 0, img.slice(0, 100))).to.be.revertedWithCustomError(store, "NotSigner");
+    await (await store.connect(dev).writeImage(TOKEN_PROGRAM, 0, img.slice(0, 24575))).wait();
+    await expect(store.connect(dev).writeImage(TOKEN_PROGRAM, 2, img.slice(0, 100))).to.be.revertedWithCustomError(store, "UploadNotOpen");
+    const bad = Uint8Array.from(img.slice(24575, 49150));
+    bad[7] ^= 1;
+    await (await store.connect(dev).writeImage(TOKEN_PROGRAM, 1, bad)).wait();
+    for (let off = 49150, i = 2; off < img.length; off += 24575, i++) await (await store.connect(dev).writeImage(TOKEN_PROGRAM, i, img.slice(off, off + 24575))).wait();
+    await expect(store.connect(dev).finalizeImage(TOKEN_PROGRAM)).to.be.revertedWithCustomError(store, "InvalidElf");
+    gas.cacheImage = await cacheImage(store, dev, TOKEN_PROGRAM);
+    expect(await store.imageReady(TOKEN_PROGRAM)).to.equal(true);
+    expect(ethers.hexlify(await store.program(TOKEN_PROGRAM))).to.equal(ethers.hexlify(img));
+    gas.transferCached = Number(await send(alice, [w(aliceAcc), w(bobAcc), s(payer)], token.transfer(100_000)));
     expect(tokenAmount((await store.account(aliceAcc)).data)).to.equal(600_000n);
     expect(tokenAmount((await store.account(bobAcc)).data)).to.equal(400_000n);
     expect(mintSupply((await store.account(mint)).data)).to.equal(1_000_000n);
@@ -257,5 +272,36 @@ describe("SolanaStore — programas e contas Solana na EVM, instruções por tra
       .to.be.revertedWithCustomError(store, "ProgramFailed").withArgs(26, 1, (logs) => logs.includes("Error: insufficient funds"));
   });
 
-  after(() => console.log(`      gás: deploy do programa ${gas.deploy}, hello ${gas.hello}, escrita na conta ${gas.write}, burn ${gas.burn}, CPI ${gas.cpi}, CPI assinada por PDA ${gas.pdaCpi}\n      SPL Token: pedaços ${gas.tokenChunks}, finalizeProgram ${gas.tokenFinalize}, InitializeMint2 ${gas.initMint}, MintTo ${gas.mintTo}, Transfer ${gas.transfer}`));
+  it("Associated Token Account (sBPF v0) chamando o SPL Token por CPI: cria a conta de token do Bob", async () => {
+    const bytes = ethers.getBytes(ataElf);
+    for (let off = 0; off < bytes.length; off += 24575) await (await store.connect(dev).writeProgram(ATA_PROGRAM, bytes.slice(off, off + 24575))).wait();
+    await (await store.connect(dev).finalizeProgram(ATA_PROGRAM)).wait();
+    await cacheImage(store, dev, ATA_PROGRAM);
+    const payer = keyFor(alice.address, 0);
+    const mint = keyFor(alice.address, 30);
+    const wallet = keyFor(bob.address, 0);
+    const addr = ataAddress(wallet, mint);
+    const before = (await store.account(payer)).lamports;
+    const rc = await (await store.connect(alice).invoke(ATA_PROGRAM, ata.metas(payer, wallet, mint), ata.create(), 0)).wait();
+    gas.ataCreate = Number(rc.gasUsed);
+    const acc = await store.account(addr);
+    expect(acc.owner).to.equal(TOKEN_PROGRAM);
+    expect(acc.lamports).to.equal(rentExempt(TOKEN_ACCOUNT_LEN));
+    const d = ethers.getBytes(acc.data);
+    expect(ethers.hexlify(d.slice(0, 32))).to.equal(mint);
+    expect(ethers.hexlify(d.slice(32, 64))).to.equal(wallet);
+    expect((await store.account(payer)).lamports).to.equal(before - rentExempt(TOKEN_ACCOUNT_LEN));
+    const ev = rc.logs.map((l) => { try { return store.interface.parseLog(l); } catch { return null; } }).find((e) => e && e.name === "Invoked");
+    expect(ev.args.logs).to.include("Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [2]");
+    // idempotente: a segunda vez não faz nada; Create sem idempotência falha (a conta já existe)
+    gas.ataIdempotent = Number((await (await store.connect(alice).invoke(ATA_PROGRAM, ata.metas(payer, wallet, mint), ata.createIdempotent(), 0)).wait()).gasUsed);
+    await expect(store.connect(alice).invoke(ATA_PROGRAM, ata.metas(payer, wallet, mint), ata.create(), 0))
+      .to.be.revertedWithCustomError(store, "ProgramFailed").withArgs(50, 0, (logs) => logs.includes("failed: Provided owner is not allowed"));
+    // tokens para a conta associada
+    const aliceAcc = keyFor(alice.address, 31);
+    await (await store.connect(alice).invoke(TOKEN_PROGRAM, [w(aliceAcc), w(addr), s(payer)], token.transfer(1_000), 0)).wait();
+    expect(tokenAmount((await store.account(addr)).data)).to.equal(1_000n);
+  });
+
+  after(() => console.log(`      gás: deploy do programa ${gas.deploy}, hello ${gas.hello}, escrita na conta ${gas.write}, burn ${gas.burn}, CPI ${gas.cpi}, CPI assinada por PDA ${gas.pdaCpi}\n      SPL Token: pedaços ${gas.tokenChunks}, finalizeProgram ${gas.tokenFinalize}, InitializeMint2 ${gas.initMint}, MintTo ${gas.mintTo}, Transfer ${gas.transfer} (com a imagem guardada: ${gas.transferCached}; guardar a imagem: ${gas.cacheImage})\n      ATA: Create ${gas.ataCreate}, CreateIdempotent (já existe) ${gas.ataIdempotent}`));
 });

@@ -43,7 +43,7 @@ describe("SPL Token (sBPF v0) no SolanaRuntime — diferencial contra o Mollusk/
   it("gás: verificar a imagem (uma vez, ao publicar) e executar uma transferência", async () => {
     const f = token.fixtures.find((x) => x.name === "token_transfer");
     const withVerify = await rt.invoke.estimateGas(image, callOf(f));
-    const verified = await rt.invokeVerified.estimateGas(image, callOf(f));
+    const verified = await rt.invokeWith.estimateGas(image, callOf(f), []);
     const vm = await ethers.getContractAt("SolanaVM", await rt.vm());
     const verify = await vm.verifyElf.estimateGas(image);
     console.log(`      verifyElf ${verify} gás; transferência ${verified} gás (com verificação ${withVerify})`);

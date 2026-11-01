@@ -30,7 +30,7 @@ contract SolanaStore {
     /// @notice BPFLoaderUpgradeab1e11111111111111111111111 (owner das contas de programa)
     bytes32 public constant BPF_LOADER = 0x02a8f6914e88a1b0e210153ef763ae2b00c2b93d16c124d2c0537a1004800000;
     /// @notice BPFLoader2111111111111111111111111111111111 (owner dos programas sBPF v0, como o SPL Token)
-    bytes32 public constant BPF_LOADER_2 = 0x02a8f6914e88a1b0e210153ef763ae2b00c2b93d16c124d2c0537a1004000000;
+    bytes32 public constant BPF_LOADER_2 = 0x02a8f6914e88a16e395ae128948ffa695693376818dd47435221f3c600000000;
     /// @notice NativeLoader1111111111111111111111111111111 (owner dos programas builtin)
     bytes32 public constant NATIVE_LOADER = 0x058784bf148ba4282fb012574888a9f153a07dadf765c0455c9a970380000000;
     bytes32 private constant SV_CLOCK = 0x06a7d51718c774c928566398691d5eb68b5eb8a39b4b6d5c73555b2100000000;
@@ -60,8 +60,11 @@ contract SolanaStore {
     mapping(bytes32 => uint256) public elfLength;
     mapping(bytes32 => address) private layout_; // programas v0: layout do SolanaLoader (SSTORE2)
     mapping(bytes32 => address) public uploader; // publicação em várias transações ainda aberta
+    mapping(bytes32 => address[]) private image_; // programas v0: imagem pronta (SSTORE2), opcional
+    mapping(bytes32 => bool) public imageReady; // imagem conferida contra SolanaImage.build
 
     event ProgramDeployed(bytes32 indexed programId, address indexed deployer, uint256 size);
+    event ImageCached(bytes32 indexed programId, uint256 size);
     event Invoked(bytes32 indexed programId, address indexed caller, uint64 cu, bytes returnData, string logs);
     event Deposited(bytes32 indexed key, address indexed from, uint64 lamports);
     event Withdrawn(bytes32 indexed key, address indexed to, uint64 lamports);
@@ -181,8 +184,51 @@ contract SolanaStore {
         emit ProgramDeployed(programId, msg.sender, e.length);
     }
 
+    /// @notice Guarda a imagem v0 pronta (`program(programId)`, lida por eth_call) em pedaços, para
+    ///         que cada instrução não precise remontá-la (~0,7M de gás a menos por programa).
+    ///         `index` 0 recomeça; `finalizeImage` só aceita a imagem idêntica à remontada.
+    function writeImage(bytes32 programId, uint256 index, bytes calldata chunk) external {
+        if (!signs(programId, msg.sender) && msg.sender != genesis) revert NotSigner(programId);
+        if (layout_[programId] == address(0) || imageReady[programId]) revert UnknownProgram(programId);
+        if (chunk.length == 0 || chunk.length > CHUNK) revert ChunkTooBig();
+        if (index == 0) delete image_[programId];
+        else if (index != image_[programId].length) revert UploadNotOpen(programId);
+        image_[programId].push(_store(chunk));
+    }
+
+    function finalizeImage(bytes32 programId) external {
+        if (!signs(programId, msg.sender) && msg.sender != genesis) revert NotSigner(programId);
+        bytes memory built = program(programId);
+        bytes memory up = _read(image_[programId], built.length);
+        if (keccak256(up) != keccak256(built)) revert InvalidElf();
+        imageReady[programId] = true;
+        emit ImageCached(programId, built.length);
+    }
+
+    /// @dev Concatena o código (sem o byte 0 do SSTORE2) dos contratos de `cs`.
+    function _read(address[] storage cs, uint256 len) private view returns (bytes memory out) {
+        out = new bytes(len);
+        uint256 off;
+        for (uint256 i = 0; i < cs.length; i++) {
+            address c = cs[i];
+            uint256 n = c.code.length - 1;
+            if (off + n > len) revert InvalidElf();
+            assembly ("memory-safe") {
+                extcodecopy(c, add(add(out, 32), off), 1, n)
+            }
+            off += n;
+        }
+        if (off != len) revert InvalidElf();
+    }
+
     /// @notice O que a SolanaVM executa: o ELF (v3) ou a imagem relocada (v0).
     function program(bytes32 programId) public view returns (bytes memory) {
+        if (imageReady[programId]) {
+            address[] storage cs = image_[programId];
+            uint256 len;
+            for (uint256 i = 0; i < cs.length; i++) len += cs[i].code.length - 1;
+            return _read(cs, len);
+        }
         bytes memory e = elf(programId);
         address l = layout_[programId];
         if (l == address(0)) return e;
@@ -282,9 +328,9 @@ contract SolanaStore {
         returns (SolanaRuntime.Outcome memory o)
     {
         (bytes memory elf_, SolanaRuntime.Call memory c, bytes32[] memory keys) = _prepare(programId, metas, data, computeUnitLimit, msg.sender);
-        o = runtime.invokeVerified(elf_, c);
+        o = runtime.invokeWith(elf_, c, _programs(c));
         if (o.err != 0) revert ProgramFailed(o.err, o.custom, o.logs);
-        for (uint256 i = 0; i < keys.length; i++) _save(keys[i], c.accounts[i], o.accounts[i]);
+        for (uint256 i = 0; i < keys.length; i++) if (!c.accounts[i].executable) _save(keys[i], c.accounts[i], o.accounts[i]);
         emit Invoked(programId, msg.sender, o.cu, o.returnData, o.logs);
     }
 
@@ -295,7 +341,7 @@ contract SolanaStore {
         returns (SolanaRuntime.Outcome memory)
     {
         (bytes memory elf_, SolanaRuntime.Call memory c, ) = _prepare(programId, metas, data, computeUnitLimit, signer);
-        return runtime.invokeVerified(elf_, c);
+        return runtime.invokeWith(elf_, c, _programs(c));
     }
 
     /// @dev Carrega o programa e as contas (sem repetição) e confere as assinaturas.
@@ -334,6 +380,23 @@ contract SolanaStore {
         if (key == SYSTEM_PROGRAM) return SolanaRuntime.Account(key, NATIVE_LOADER, 1, true, "system_program");
         Stored storage s = accounts_[key];
         a = SolanaRuntime.Account(key, s.owner, s.lamports, s.executable, s.data);
+        // loader v2 (BPFLoader2111...): os dados da conta de programa são o próprio ELF
+        if (s.executable && s.owner == BPF_LOADER_2) a.data = elf(key);
+    }
+
+    /// @dev Programas sBPF entre as contas da instrução: os que ela pode chamar por CPI.
+    function _programs(SolanaRuntime.Call memory c) private view returns (SolanaRuntime.Program[] memory ps) {
+        uint256 n;
+        for (uint256 i = 0; i < c.accounts.length; i++) if (_isProgram(c.accounts[i])) n++;
+        ps = new SolanaRuntime.Program[](n);
+        n = 0;
+        for (uint256 i = 0; i < c.accounts.length; i++) {
+            if (_isProgram(c.accounts[i])) ps[n++] = SolanaRuntime.Program(c.accounts[i].key, program(c.accounts[i].key));
+        }
+    }
+
+    function _isProgram(SolanaRuntime.Account memory a) private view returns (bool) {
+        return a.executable && (a.owner == BPF_LOADER_2 || a.owner == BPF_LOADER) && chunks_[a.key].length != 0;
     }
 
     function _save(bytes32 key, SolanaRuntime.Account memory before, SolanaRuntime.Account memory after_) private {

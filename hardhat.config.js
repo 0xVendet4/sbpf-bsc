@@ -7,13 +7,19 @@ const accounts = process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [];
 module.exports = {
   // Versão fixada (ver README). Mudar exige rodar os fixtures de novo e revisar o gás.
   solidity: {
-    version: "0.8.28",
-    settings: { optimizer: { enabled: true, runs: Number(process.env.OPT_RUNS || 10_000) }, evmVersion: "cancun" },
+    compilers: [{ version: "0.8.28", settings: { optimizer: { enabled: true, runs: Number(process.env.OPT_RUNS || 10_000) }, evmVersion: "cancun" } }],
+    // O runtime orquestra (não é o laço quente da VM): otimizado para tamanho, para caber em 24 KB.
+    overrides: {
+      "contracts/src/SolanaRuntime.sol": {
+        version: "0.8.28",
+        settings: { optimizer: { enabled: true, runs: 200 }, evmVersion: "cancun" },
+      },
+    },
   },
   paths: { sources: "./contracts/src", tests: "./contracts/test" },
   mocha: { timeout: 600_000 },
   networks: {
-    hardhat: { blockGasLimit: 140_000_000 },
+    hardhat: { blockGasLimit: 140_000_000, allowUnlimitedContractSize: process.env.UNLIMITED === "1" },
     bscTestnet: {
       url: process.env.BSC_TESTNET_RPC || "https://bsc-testnet-rpc.publicnode.com",
       chainId: 97,

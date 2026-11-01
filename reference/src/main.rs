@@ -27,6 +27,8 @@ use solana_sbpf::{
 };
 use std::{cell::RefCell, fs, path::Path, ptr::NonNull, sync::Arc};
 
+mod v3;
+
 // ------------------------------------------------------------------ VM de referência
 
 struct Ctx {
@@ -654,4 +656,10 @@ fn main() {
     write(&fixtures, "programs.json", demo_cases(&root.join("programs")));
     write(&fixtures, "random.json", random_cases(n_random));
     write_asm(&fixtures, asm_cases(n_random));
+
+    // sBPF v3 (ISA da mainnet atual)
+    let v3dir = fixtures.join("v3");
+    fs::create_dir_all(&v3dir).unwrap();
+    write(&v3dir, "isa.json", v3::cases());
+    write(&v3dir, "random.json", v3::random_cases(n_random));
 }

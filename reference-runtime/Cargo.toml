@@ -1,0 +1,24 @@
+[package]
+name = "sbpf-runtime-reference"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Fonte da verdade do runtime: roda programas Solana reais no Mollusk (agave) e grava fixtures"
+
+[dependencies]
+# Versões fixadas no Cargo.lock (copiado da tag 0.16.4 do Mollusk: agave 4.3.0, solana-sbpf 0.23.0).
+mollusk-svm = "=0.16.4"
+serde_json = "=1.0.140"
+solana-program-runtime = "=4.3.0"
+solana-transaction-context = "=4.3.0"
+solana-svm-log-collector = "=4.3.0"
+solana-sbpf = "=0.23.0"
+solana-account = "=4.7.0"
+solana-pubkey = "=4.3.0"
+solana-instruction = "=3.5.1"
+solana-sdk-ids = "=3.1.0"
+solana-rent = "=4.4.0"
+bs58 = "=0.5.1"
+
+[profile.release]
+debug = false

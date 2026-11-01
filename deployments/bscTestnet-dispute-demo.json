@@ -1,0 +1,113 @@
+{
+  "id": "0",
+  "fixture": "isqrt_8",
+  "steps": 327,
+  "k": 326,
+  "txs": [
+    {
+      "label": "A afirma (falso)",
+      "hash": "0x59b083a4cffd024c869e122f0a416db09eed97110e1d5a9c57a09a6a40239b4a",
+      "gas": "200513"
+    },
+    {
+      "label": "B contesta",
+      "hash": "0x3b25ff5f2e56c402576ec31e9c4d8328f73d2d4d460fc140109b2fbd3f5cd9c5",
+      "gas": "99696"
+    },
+    {
+      "label": "rodada 1: A posta o meio (163)",
+      "hash": "0xb636b9a99239069c982a1d9d8e582b5ba36204d7b1dab0ffb29f78df460a3323",
+      "gas": "54127"
+    },
+    {
+      "label": "rodada 1: B escolhe direita",
+      "hash": "0xa919346df7f4d732919a14ce44c974c55ae8ccb7bcd95d7acdb609af6c9f584d",
+      "gas": "39508"
+    },
+    {
+      "label": "rodada 2: A posta o meio (245)",
+      "hash": "0xb0d03cbb69e05b45a9b1c744d03ec48dc1ce5e34ae8dce4321a5be15e66943fd",
+      "gas": "37027"
+    },
+    {
+      "label": "rodada 2: B escolhe direita",
+      "hash": "0xc3fdd5b261216eecc6b84906a635c7b60d373a7d7c059b160c4c6590fd2d5c5f",
+      "gas": "39508"
+    },
+    {
+      "label": "rodada 3: A posta o meio (286)",
+      "hash": "0x3db24f826d3ea8cbbed5a2af1a2772ff13769cd000fde6e22562cc1415cda45a",
+      "gas": "37027"
+    },
+    {
+      "label": "rodada 3: B escolhe direita",
+      "hash": "0x103c0a96a3b657c4bb518445421082a4d97c69e5686c030ba946e618639270e3",
+      "gas": "39508"
+    },
+    {
+      "label": "rodada 4: A posta o meio (306)",
+      "hash": "0x0d57b7cde37e18cff89a25ae1e7532fd915cb677d59ac0c883695304a59fcb4a",
+      "gas": "37015"
+    },
+    {
+      "label": "rodada 4: B escolhe direita",
+      "hash": "0xdd683649d4be24e032bc08baa7a842e5493bdde266e0ecce0a846299a237845c",
+      "gas": "39508"
+    },
+    {
+      "label": "rodada 5: A posta o meio (316)",
+      "hash": "0x0c49488b0a02a4ab2a7b5cfba49183f91b5ccb521faa0bf1d579124ba62d524b",
+      "gas": "37027"
+    },
+    {
+      "label": "rodada 5: B escolhe direita",
+      "hash": "0x98653f339c311119351e99dc97a1a736aafdbe9c50bef798861932ae4a0f106d",
+      "gas": "39508"
+    },
+    {
+      "label": "rodada 6: A posta o meio (321)",
+      "hash": "0x0adf1f7b8c5090f028358b0a59898cb5c6dfd3ad61c8bf4695db40d4f3bb8672",
+      "gas": "37027"
+    },
+    {
+      "label": "rodada 6: B escolhe direita",
+      "hash": "0xaf2bc60dc6b09ae19480c0049de4c415cb59c434730f57fae4f0d7c53e73b812",
+      "gas": "39508"
+    },
+    {
+      "label": "rodada 7: A posta o meio (324)",
+      "hash": "0x03516f0b52f4e2ef3644dfebea1e6902fd6a1bb7eb5b9260c5eb79a88207a64c",
+      "gas": "37027"
+    },
+    {
+      "label": "rodada 7: B escolhe direita",
+      "hash": "0x49308172df5075d8163ea3cc874615cc8c41550c39f7ceeb427a2755b13aa4a3",
+      "gas": "39508"
+    },
+    {
+      "label": "rodada 8: A posta o meio (325)",
+      "hash": "0x08ef7a68b06bcf1f039def81712237e81d3127ee5f379e2e08b126f74747feea",
+      "gas": "37027"
+    },
+    {
+      "label": "rodada 8: B escolhe direita",
+      "hash": "0x131006ac83fb24fe0991848af5babc321884f031930009bbf93e18cb7098047b",
+      "gas": "39508"
+    },
+    {
+      "label": "rodada 9: A posta o meio (326)",
+      "hash": "0xbf320c2553aae5b58122710b6b56c160420d6be801c2bf80a93a526551447a78",
+      "gas": "37027"
+    },
+    {
+      "label": "rodada 9: B escolhe direita",
+      "hash": "0xc9073ab4b556e52a54afe4db63d578169702e09e1b4324776293272be0817484",
+      "gas": "39509"
+    },
+    {
+      "label": "B prova o passo",
+      "hash": "0xb59378df44c3d5f9765c5ee59a8e32b87688ef13c702a205d07b6b00b047053f",
+      "gas": "99990"
+    }
+  ]
+}

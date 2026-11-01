@@ -82,6 +82,15 @@ fora da cadeia e **provar na cadeia só a instrução em disputa**.
   meio, número de instruções errado, abandono de cada lado, provas com programa/input trocados.
   Para isqrt(u64::MAX), 327 instruções, a disputa inteira leva 9 rodadas de bisseção.
 
+Na testnet: `SbpfVM` v2 (com `step`) em [`0xF910103187F855Fb6aa5F0826Ac43E4f4C7Acc49`](https://testnet.bscscan.com/address/0xF910103187F855Fb6aa5F0826Ac43E4f4C7Acc49)
+e `SbpfDispute` em [`0x3d5346d0291ECB33c9bb93c31Dbb52db2a75D07F`](https://testnet.bscscan.com/address/0x3d5346d0291ECB33c9bb93c31Dbb52db2a75D07F)
+(caução 0,001 BNB, janela de contestação 8000 blocos, 4000 por jogada). Uma disputa inteira foi
+jogada on-chain (`scripts/dispute-demo.js`, transações em `deployments/bscTestnet-dispute-demo.json`):
+A afirmou isqrt(u64::MAX) com r0 errado, B contestou, 9 rodadas de bisseção (~37k gas quem posta,
+~40k quem escolhe) e a [prova do passo 326→327](https://testnet.bscscan.com/tx/0xb59378df44c3d5f9765c5ee59a8e32b87688ef13c702a205d07b6b00b047053f)
+(100k gas) derrubou a afirmação; B recebeu as duas cauções. Custo total da disputa para o
+contestador: ~0,0005 BNB em gas.
+
 O que isto ainda não é: o programa continua sem syscalls e sem contas (próxima fase), e o input
 entra inteiro no passo final (para inputs grandes, trocar por Merkle).
 

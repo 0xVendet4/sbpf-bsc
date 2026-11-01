@@ -39,6 +39,21 @@
       ],
       "source": "contracts/src/BountyBoard.sol:BountyBoard",
       "constructorArgsAbiEncoded": "000000000000000000000000d9c7af9165b190add2264853f2f6b4aa4bd6649f000000000000000000000000a5aa84562dff099f8ba8f4fcd06eb584de006df80000000000000000000000000000000000000000000000004563918244f40000"
+    },
+    "SbpfVM_v2": {
+      "address": "0xF910103187F855Fb6aa5F0826Ac43E4f4C7Acc49",
+      "args": [],
+      "source": "contracts/src/SbpfVM.sol:SbpfVM"
+    },
+    "SbpfDispute": {
+      "address": "0x3d5346d0291ECB33c9bb93c31Dbb52db2a75D07F",
+      "args": [
+        "0xF910103187F855Fb6aa5F0826Ac43E4f4C7Acc49",
+        "1000000000000000",
+        8000,
+        4000
+      ],
+      "source": "contracts/src/SbpfDispute.sol:SbpfDispute"
     }
   },
   "compiler": {

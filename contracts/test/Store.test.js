@@ -1,6 +1,6 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
-const { loadJson, deploySolanaVM, base58 } = require("./solanaHelpers");
+const { loadJson, deploySolanaRuntime, base58 } = require("./solanaHelpers");
 
 // SolanaStore: programas e contas Solana guardados na EVM, instruções processadas por transação.
 // O fluxo é o de um cliente Solana: publicar o programa, criar a conta de dados pelo system
@@ -10,6 +10,41 @@ const fixtures = loadJson("solana/programs.json");
 const elfOf = (program) => fixtures.find((f) => f.program === program).elf;
 const INCINERATOR = "0x003390728d34116079bdc911bfff00dbd44d2ecdccf79ca6e10038e100000000"; // 1nc1nerator11111111111111111111111111111111
 const le64 = (n) => ethers.toBeHex(n, 8).slice(2).match(/../g).reverse().join("");
+
+
+// --- PDAs e CPI pelo programa de teste em assembly (reference-runtime: pda_program)
+const HEAP = 0x300000000n;
+const INPUT = 0x400000000n;
+const SYSTEM = "0x" + "00".repeat(32);
+const u64le = (v) => { const o = []; v = BigInt(v); for (let i = 0; i < 8; i++) { o.push(Number(v & 0xffn)); v >>= 8n; } return o; };
+class Heap {
+  constructor() { this.b = []; }
+  put(bytes) { while (this.b.length % 8) this.b.push(0); const a = HEAP + BigInt(this.b.length); this.b.push(...bytes); return a; }
+  seeds(list) { const arr = []; for (const s of list) { arr.push(...u64le(this.put(s)), ...u64le(s.length)); } return this.put(arr); }
+}
+/// [op][a1..a5][watch][heapLen][heap]: o programa copia o heap e chama a syscall `op` com r1..r5 = a1..a5
+const pdaIx = (op, a, watch, h) => ethers.hexlify(Uint8Array.from([...[op, ...a, watch, h.b.length].flatMap(u64le), ...h.b]));
+
+const ED_P = 2n ** 255n - 19n;
+const ED_D = 37095705934669439343138083508754565189542113879843219016388785533085940283555n;
+function modpow(b, e, m) { let r = 1n; b %= m; while (e > 0n) { if (e & 1n) r = (r * b) % m; b = (b * b) % m; e >>= 1n; } return r; }
+/// `CompressedEdwardsY::decompress().is_some()`
+function onCurve(h) {
+  let y = 0n;
+  for (let i = 31; i >= 0; i--) y = (y << 8n) | BigInt(h[i]);
+  y = (y & ((1n << 255n) - 1n)) % ED_P;
+  const yy = (y * y) % ED_P, u = (yy + ED_P - 1n) % ED_P, v = (ED_D * yy + 1n) % ED_P;
+  if (u === 0n) return true;
+  if (v === 0n) return false;
+  return modpow((u * v) % ED_P, (ED_P - 1n) / 2n, ED_P) === 1n;
+}
+function findPda(seeds, programId) {
+  for (let bump = 255; bump >= 0; bump--) {
+    const h = ethers.getBytes(ethers.sha256(ethers.concat([...seeds, Uint8Array.of(bump), programId, ethers.toUtf8Bytes("ProgramDerivedAddress")])));
+    if (!onCurve(h)) return [ethers.hexlify(h), bump];
+  }
+  throw new Error("sem PDA");
+}
 
 /// Chave assinada por `addr` com um prefixo de 12 bytes (cada endereço controla 2^96 chaves).
 function keyFor(addr, prefix = 0) {
@@ -21,8 +56,7 @@ const r = (key) => ({ key, isSigner: false, isWritable: false });
 const ws = (key) => ({ key, isSigner: true, isWritable: true });
 
 async function deployStore() {
-  const vm = await deploySolanaVM();
-  const rt = await (await ethers.getContractFactory("SolanaRuntime")).deploy(await vm.getAddress());
+  const { vm, rt } = await deploySolanaRuntime();
   const store = await (await ethers.getContractFactory("SolanaStore")).deploy(await rt.getAddress());
   await store.waitForDeployment();
   return { vm, rt, store };
@@ -171,5 +205,71 @@ describe("SolanaStore — programas e contas Solana na EVM, instruções por tra
     expect(ev.args.logs).to.include("Program return:");
   });
 
-  after(() => console.log(`      gás: deploy do programa ${gas.deploy}, hello ${gas.hello}, escrita na conta ${gas.write}, burn ${gas.burn}`));
+
+  it("CPI: programa Solana compilado chama o system program dentro da transação", async () => {
+    // simple_transfer_program (agave): transfere `amount` (u64 big-endian) do pagador via invoke()
+    const simpleId = keyFor(dev.address, 3);
+    const payer = keyFor(alice.address, 8);
+    const to = keyFor(bob.address, 8);
+    await store.connect(alice).deposit(payer, { value: 5000n });
+    const tx = await store.connect(alice).invoke(simpleId, [ws(payer), w(to), r(SYSTEM)], ethers.toBeHex(1000, 8), 0);
+    const rc = await tx.wait();
+    gas.cpi = Number(rc.gasUsed);
+    const ev = rc.logs.map((l) => { try { return store.interface.parseLog(l); } catch { return null; } }).find((l) => l && l.name === "Invoked");
+    const lines = ev.args.logs.split("\n");
+    expect(lines).to.include("Program 11111111111111111111111111111111 invoke [2]");
+    expect(lines).to.include("Program 11111111111111111111111111111111 success");
+    expect(ev.args.cu > 2000n).to.equal(true); // ~2274 no agave; varia com os bytes das chaves (comparações)
+    expect((await store.account(payer)).lamports).to.equal(4000n);
+    expect((await store.account(to)).lamports).to.equal(1000n);
+    // sem a assinatura do pagador o agave recusa a CPI (PrivilegeEscalation = 38 + 1)
+    await expect(store.connect(bob).invoke(simpleId, [w(payer), w(to), r(SYSTEM)], ethers.toBeHex(1000, 8), 0))
+      .to.be.revertedWithCustomError(store, "ProgramFailed").withArgs(39, 0, (logs) => logs.includes("signer privilege escalated"));
+  });
+
+  it("PDA: try_find_program_address on-chain e CPI assinada pelo PDA (cofre do programa)", async () => {
+    const pdaId = keyFor(dev.address, 20);
+    await store.connect(dev).deployProgram(pdaId, elfOf("pda_program"));
+    const [vault, bump] = findPda([ethers.toUtf8Bytes("vault")], pdaId);
+
+    // op 1: sol_try_find_program_address(["vault"], programa) → loga r0, bump e o endereço
+    let h = new Heap();
+    const seeds = h.seeds([ethers.toUtf8Bytes("vault")]);
+    const pid = h.put(ethers.getBytes(pdaId));
+    const out = h.put(new Array(32).fill(0));
+    const bumpOut = h.put(new Array(8).fill(0));
+    const sim = await store.simulate(pdaId, [], pdaIx(1, [seeds, 1, pid, out, bumpOut], 0, h), 0, alice.address);
+    expect(sim.logs.split("\n").slice(1, 3)).to.deep.equal([`Program log: 0x0, 0x${bump.toString(16)}, 0x0, 0x0, 0x0`, `Program log: ${base58(ethers.getBytes(vault))}`]);
+
+    // o cofre (PDA, dono = system program) recebe lamports; só o programa consegue gastá-los,
+    // assinando a CPI com as seeds ["vault", bump] (sol_invoke_signed_c)
+    await store.connect(alice).deposit(vault, { value: 5000n });
+    const to = keyFor(bob.address, 9);
+    const m0 = INPUT + 8n; // marcador do 1º registro de conta no input (cofre, sem dados)
+    const m1 = m0 + 88n + 10240n + 8n;
+    h = new Heap();
+    const sysId = h.put(new Array(32).fill(0));
+    const k0 = h.put(ethers.getBytes(vault));
+    const k1 = h.put(ethers.getBytes(to));
+    const metas = h.put([...u64le(k0), 1, 1, 0, 0, 0, 0, 0, 0, ...u64le(k1), 1, 0, 0, 0, 0, 0, 0, 0]);
+    const data = h.put([2, 0, 0, 0, ...u64le(1000)]); // SystemInstruction::Transfer { lamports: 1000 }
+    const ix = h.put([sysId, metas, 2, data, 12].flatMap(u64le));
+    const info = (m, signer, writable) => [...[m + 8n, m + 72n, 0, m + 88n, m + 40n, 0].flatMap(u64le), signer, writable, 0, 0, 0, 0, 0, 0];
+    const infos = h.put([...info(m0, 0, 1), ...info(m1, 0, 1)]);
+    const signer = h.seeds([ethers.toUtf8Bytes("vault"), Uint8Array.of(bump)]);
+    const signers = h.put([...u64le(signer), ...u64le(2)]);
+    const metasTop = [w(vault), w(to), r(SYSTEM)];
+    const tx = await store.connect(bob).invoke(pdaId, metasTop, pdaIx(2, [ix, infos, 2, signers, 1], m0 + 72n, h), 0);
+    gas.pdaCpi = Number((await tx.wait()).gasUsed);
+    expect((await store.account(vault)).lamports).to.equal(4000n);
+    expect((await store.account(to)).lamports).to.equal(1000n);
+    // seeds erradas: o PDA não assina
+    const h2 = new Heap();
+    h2.b = [...h.b];
+    const bad = h2.seeds([ethers.toUtf8Bytes("vaulx"), Uint8Array.of(bump)]);
+    const badSigners = h2.put([...u64le(bad), ...u64le(2)]);
+    await expect(store.connect(bob).invoke(pdaId, metasTop, pdaIx(2, [ix, infos, 2, badSigners, 1], 0, h2), 0)).to.be.revertedWithCustomError(store, "ProgramFailed");
+  });
+
+  after(() => console.log(`      gás: deploy do programa ${gas.deploy}, hello ${gas.hello}, escrita na conta ${gas.write}, burn ${gas.burn}, CPI ${gas.cpi}, CPI assinada por PDA ${gas.pdaCpi}`));
 });

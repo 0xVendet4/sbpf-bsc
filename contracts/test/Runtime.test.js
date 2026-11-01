@@ -1,6 +1,6 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
-const { SV_CLOCK, loadJson, deploySolanaVM } = require("./solanaHelpers");
+const { SV_CLOCK, loadJson, deploySolanaRuntime } = require("./solanaHelpers");
 
 // SolanaRuntime.sol recebe a instrução como o agave recebe (programa, contas, metas, dados, sysvars),
 // serializa as contas ele mesmo (ABIv1 com direct mapping), roda o SolanaVM e aplica as regras do
@@ -39,15 +39,9 @@ function callOf(f) {
   return { programId: f.programId, maxCu: BigInt(f.maxCu), accounts, metas, data: f.data, sysvars: [{ id: SV_CLOCK, data: f.sysvars.clock }] };
 }
 
-async function deployRuntime() {
-  const vm = await deploySolanaVM();
-  const F = await ethers.getContractFactory("SolanaRuntime");
-  const rt = await F.deploy(await vm.getAddress());
-  await rt.waitForDeployment();
-  return { vm, rt };
-}
+const deployRuntime = deploySolanaRuntime;
 
-const CPI = new Set(["simple_transfer_cpi"]); // ainda sem CPI
+const CPI = new Set(); // CPI para o system program já é suportada
 
 describe("SolanaRuntime — instruções completas (diferencial contra o Mollusk/agave)", function () {
   let rt;

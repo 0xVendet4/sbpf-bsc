@@ -3,7 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const { ethers } = require("hardhat");
 
-const STATUS = ["Ok", "Invalid", "DivideByZero", "AccessViolation", "CuExceeded", "CallDepthExceeded", "CallOutsideTextSegment", "SyscallError"];
+const STATUS = ["Ok", "Invalid", "DivideByZero", "AccessViolation", "CuExceeded", "CallDepthExceeded", "CallOutsideTextSegment", "SyscallError", "Cpi"];
 const SYSCALL_ERR = {
   1: "Abort", 2: "Panic", 3: "InvalidString", 4: "CopyOverlapping", 5: "InvalidPointer", 6: "ReturnDataTooLarge",
   7: "UnalignedPointer", 8: "InvalidLength", 9: "Unimplemented", 10: "ArithmeticOverflow", 11: "TooManySlices", 12: "UnsupportedSysvar",
@@ -22,6 +22,17 @@ async function deploySolanaVM() {
   const vm = await F.deploy();
   await vm.waitForDeployment();
   return vm;
+}
+
+/// VM + CPI + log + runtime (a CPI e o texto do log ficam em contratos à parte: limite de 24 KB).
+async function deploySolanaRuntime() {
+  const vm = await deploySolanaVM();
+  const cpi = await (await ethers.getContractFactory("SolanaCpi")).deploy();
+  const log = await (await ethers.getContractFactory("SolanaLog")).deploy();
+  const F = await ethers.getContractFactory("SolanaRuntime");
+  const rt = await F.deploy(await vm.getAddress(), await cpi.getAddress(), await log.getAddress());
+  await rt.waitForDeployment();
+  return { vm, cpi, log, rt };
 }
 
 /// Nome do status como nos fixtures (SyscallError vira o nome do erro).
@@ -85,4 +96,5 @@ function formatLogs(entries) {
   }).filter((x) => x !== null);
 }
 
-module.exports = { STATUS, SYSCALL_ERR, INPUT_START, SV_CLOCK, loadJson, deploySolanaVM, statusName, parseLogs, formatLogs, base58 };
+module.exports = {
+  deploySolanaRuntime, STATUS, SYSCALL_ERR, INPUT_START, SV_CLOCK, loadJson, deploySolanaVM, statusName, parseLogs, formatLogs, base58 };

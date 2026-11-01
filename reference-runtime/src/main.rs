@@ -20,7 +20,7 @@ use solana_rent::Rent;
 use solana_sdk_ids::{bpf_loader_upgradeable, incinerator};
 use solana_svm_log_collector::LogCollector;
 use solana_transaction_context::{instruction_accounts::InstructionAccount, transaction::TransactionContext};
-use std::{fs, path::Path};
+use std::{collections::HashMap, fs, path::Path};
 
 fn hex(b: &[u8]) -> String {
     format!("0x{}", b.iter().map(|x| format!("{x:02x}")).collect::<String>())
@@ -96,6 +96,7 @@ fn run_case(dir: &Path, c: &Case) -> Value {
     let elf = fs::read(dir.join(format!("{}.so", c.program))).unwrap_or_else(|_| panic!("faltando {}.so", c.program));
     let mut mollusk = Mollusk::default();
     mollusk.add_program_with_loader_and_elf(&program_id, &bpf_loader_upgradeable::id(), &elf);
+    mollusk.config.rent_exempt_checks = false; // o SolanaStore não cobra rent (ver README)
     mollusk.sysvars.clock.slot = 123_456;
     mollusk.sysvars.clock.epoch_start_timestamp = 1_700_000_000;
     mollusk.sysvars.clock.epoch = 42;
@@ -144,6 +145,348 @@ fn run_case(dir: &Path, c: &Case) -> Value {
     })
 }
 
+// ------------------------------------------------------------------ programa de teste (PDAs e CPI)
+//
+// Programa sBPF v3 escrito à mão (assembly montado aqui, ELF mínimo com só o segmento de código),
+// para exercitar o que os programas de exemplo do agave não exercitam: sol_create_program_address,
+// sol_try_find_program_address e CPI pela ABI C e Rust com seeds de signatário. Os dados da
+// instrução trazem os argumentos da syscall (ponteiros absolutos montados pelo gerador):
+//   [op][a1][a2][a3][a4][a5][watch][heapLen][heap...]
+// O programa copia `heap` para o início do heap (0x300000000), chama a syscall `op`
+// (0 create, 1 try_find, 2 invoke_signed_c, 3 invoke_signed_rust) com r1..r5 = a1..a5 e loga o
+// resultado (r0, bump e o endereço; ou r0 e o u64 em `watch` depois da CPI).
+
+enum A {
+    I(u8, u8, u8, i16, i32),
+    J(u8, u8, i32, &'static str),
+    S(&'static str),
+    L(&'static str),
+}
+
+fn assemble(prog: &[A]) -> Vec<u8> {
+    let mut labels = HashMap::new();
+    let mut pc = 0i64;
+    for a in prog {
+        match a {
+            A::L(n) => {
+                labels.insert(*n, pc);
+            }
+            _ => pc += 1,
+        }
+    }
+    let mut out = vec![];
+    pc = 0;
+    for a in prog {
+        let (opc, dst, src, off, imm) = match a {
+            A::L(_) => continue,
+            A::I(o, d, s, off, imm) => (*o, *d, *s, *off, *imm),
+            A::J(o, d, imm, l) => (*o, *d, 0u8, (labels[l] - pc - 1) as i16, *imm),
+            A::S(name) => (0x85, 0, 0, 0, solana_sbpf::ebpf::hash_symbol_name(name.as_bytes()) as i32),
+        };
+        out.push(opc);
+        out.push(dst | (src << 4));
+        out.extend_from_slice(&off.to_le_bytes());
+        out.extend_from_slice(&imm.to_le_bytes());
+        pc += 1;
+    }
+    out
+}
+
+/// ELF sBPF v3 mínimo (SIMD-0189): cabeçalho, um program header PF_X em 1<<32 e o código.
+fn elf_v3(text: &[u8]) -> Vec<u8> {
+    let mut e = vec![0x7f, b'E', b'L', b'F', 2, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    e.extend_from_slice(&3u16.to_le_bytes()); // ET_DYN
+    e.extend_from_slice(&247u16.to_le_bytes()); // EM_BPF
+    e.extend_from_slice(&1u32.to_le_bytes());
+    e.extend_from_slice(&(1u64 << 32).to_le_bytes()); // entrada
+    e.extend_from_slice(&64u64.to_le_bytes()); // phoff
+    e.extend_from_slice(&0u64.to_le_bytes()); // shoff
+    e.extend_from_slice(&3u32.to_le_bytes()); // e_flags = v3
+    for v in [64u16, 56, 1, 64, 0, 0] {
+        e.extend_from_slice(&v.to_le_bytes());
+    }
+    e.extend_from_slice(&1u32.to_le_bytes()); // PT_LOAD
+    e.extend_from_slice(&1u32.to_le_bytes()); // PF_X
+    for v in [120u64, 1 << 32, 1 << 32, text.len() as u64, text.len() as u64, 8] {
+        e.extend_from_slice(&v.to_le_bytes());
+    }
+    e.extend_from_slice(text);
+    e
+}
+
+fn pda_program() -> Vec<u8> {
+    use A::*;
+    let mov = |d: u8, imm: i32| I(0xb7, d, 0, 0, imm);
+    let movr = |d: u8, s: u8| I(0xbf, d, s, 0, 0);
+    let ldxdw = |d: u8, s: u8, off: i16| I(0x79, d, s, off, 0);
+    let prog = vec![
+        movr(9, 2),
+        ldxdw(6, 9, 0),
+        ldxdw(7, 9, 32),
+        ldxdw(8, 9, 40),
+        ldxdw(3, 9, 56),
+        J(0x15, 3, 0, "args"),
+        mov(1, 3),
+        I(0x67, 1, 0, 0, 32), // r1 = 0x300000000
+        movr(2, 9),
+        I(0x07, 2, 0, 0, 64),
+        S("sol_memcpy_"),
+        L("args"),
+        ldxdw(1, 9, 8),
+        ldxdw(2, 9, 16),
+        ldxdw(3, 9, 24),
+        movr(4, 7),
+        movr(5, 8),
+        J(0x15, 6, 0, "create"),
+        J(0x15, 6, 1, "find"),
+        J(0x15, 6, 2, "invoke_c"),
+        J(0x15, 6, 3, "invoke_rust"),
+        mov(0, 99),
+        I(0x95, 0, 0, 0, 0),
+        L("create"),
+        S("sol_create_program_address"),
+        J(0x05, 0, 0, "after_pda"),
+        L("find"),
+        S("sol_try_find_program_address"),
+        J(0x05, 0, 0, "after_pda"),
+        L("invoke_c"),
+        S("sol_invoke_signed_c"),
+        J(0x05, 0, 0, "after_invoke"),
+        L("invoke_rust"),
+        S("sol_invoke_signed_rust"),
+        J(0x05, 0, 0, "after_invoke"),
+        L("after_pda"),
+        movr(6, 0),
+        movr(1, 6),
+        mov(2, 0),
+        J(0x15, 8, 0, "logres"),
+        I(0x71, 2, 8, 0, 0), // ldxb r2, [r8]
+        L("logres"),
+        mov(3, 0),
+        mov(4, 0),
+        mov(5, 0),
+        S("sol_log_64_"),
+        J(0x55, 6, 0, "done"),
+        movr(1, 7),
+        S("sol_log_pubkey"),
+        L("done"),
+        mov(0, 0),
+        I(0x95, 0, 0, 0, 0),
+        L("after_invoke"),
+        ldxdw(3, 9, 48),
+        movr(1, 0),
+        mov(2, 0),
+        J(0x15, 3, 0, "logw"),
+        ldxdw(2, 3, 0),
+        L("logw"),
+        mov(3, 0),
+        mov(4, 0),
+        mov(5, 0),
+        S("sol_log_64_"),
+        mov(0, 0),
+        I(0x95, 0, 0, 0, 0),
+    ];
+    elf_v3(&assemble(&prog))
+}
+
+const HEAP: u64 = 0x3_0000_0000;
+const INPUT: u64 = 0x4_0000_0000;
+
+/// Bytes que o programa copia para o heap; `put` devolve o endereço virtual (alinhado a 8).
+#[derive(Default)]
+struct Heap {
+    bytes: Vec<u8>,
+}
+
+impl Heap {
+    fn put(&mut self, b: &[u8]) -> u64 {
+        while self.bytes.len() % 8 != 0 {
+            self.bytes.push(0);
+        }
+        let a = HEAP + self.bytes.len() as u64;
+        self.bytes.extend_from_slice(b);
+        a
+    }
+    /// Array de VmSlice (ptr, len) para as seeds.
+    fn seeds(&mut self, list: &[Vec<u8>]) -> u64 {
+        let mut arr = vec![];
+        for s in list {
+            let a = if s.is_empty() { HEAP } else { self.put(s) };
+            arr.extend_from_slice(&a.to_le_bytes());
+            arr.extend_from_slice(&(s.len() as u64).to_le_bytes());
+        }
+        self.put(&arr)
+    }
+    /// Array de signatários (VmSlice de VmSlices).
+    fn signers(&mut self, list: &[Vec<Vec<u8>>]) -> u64 {
+        let mut arr = vec![];
+        for seeds in list {
+            let a = self.seeds(seeds);
+            arr.extend_from_slice(&a.to_le_bytes());
+            arr.extend_from_slice(&(seeds.len() as u64).to_le_bytes());
+        }
+        self.put(&arr)
+    }
+}
+
+fn pda_ix(op: u64, a: [u64; 5], watch: u64, heap: &Heap) -> Vec<u8> {
+    let mut d = vec![];
+    for v in [op, a[0], a[1], a[2], a[3], a[4], watch, heap.bytes.len() as u64] {
+        d.extend_from_slice(&v.to_le_bytes());
+    }
+    d.extend_from_slice(&heap.bytes);
+    d
+}
+
+/// Endereço do marcador de cada meta no input serializado (ABIv1 com espaço reservado).
+fn markers(accounts: &[(Pubkey, Account)], metas: &[AccountMeta]) -> Vec<u64> {
+    let mut v = INPUT + 8;
+    let mut seen: Vec<(Pubkey, u64)> = vec![];
+    let mut out = vec![];
+    for m in metas {
+        if let Some((_, a)) = seen.iter().find(|(k, _)| *k == m.pubkey) {
+            out.push(*a);
+            v += 8;
+            continue;
+        }
+        out.push(v);
+        seen.push((m.pubkey, v));
+        let len = accounts.iter().find(|(k, _)| *k == m.pubkey).unwrap().1.data.len() as u64;
+        v += 88 + len + 10240 + (8 - len % 8) % 8 + 8;
+    }
+    out
+}
+
+/// Conta da CPI: chave, marcador no input, tamanho dos dados, signer, writable.
+struct CpiAcc {
+    key: Pubkey,
+    m: u64,
+    len: u64,
+    signer: bool,
+    writable: bool,
+}
+
+/// SolInstruction + SolAccountMeta[] + SolAccountInfo[] (ABI C) no heap: devolve (ix, infos).
+fn cpi_c(h: &mut Heap, program: &Pubkey, metas: &[CpiAcc], infos: &[CpiAcc], data: &[u8]) -> (u64, u64) {
+    let pid = h.put(program.as_ref());
+    let mut ma = vec![];
+    for m in metas {
+        let k = h.put(m.key.as_ref());
+        ma.extend_from_slice(&k.to_le_bytes());
+        ma.extend_from_slice(&[m.writable as u8, m.signer as u8, 0, 0, 0, 0, 0, 0]);
+    }
+    let metas_addr = if ma.is_empty() { HEAP } else { h.put(&ma) };
+    let data_addr = if data.is_empty() { HEAP } else { h.put(data) };
+    let mut ix = vec![];
+    for v in [pid, metas_addr, metas.len() as u64, data_addr, data.len() as u64] {
+        ix.extend_from_slice(&v.to_le_bytes());
+    }
+    let ix_addr = h.put(&ix);
+    let mut ia = vec![];
+    for a in infos {
+        for v in [a.m + 8, a.m + 72, a.len, a.m + 88, a.m + 40, 0] {
+            ia.extend_from_slice(&v.to_le_bytes());
+        }
+        ia.extend_from_slice(&[a.signer as u8, a.writable as u8, 0, 0, 0, 0, 0, 0]);
+    }
+    let infos_addr = h.put(&ia);
+    (ix_addr, infos_addr)
+}
+
+/// StableInstruction + AccountMeta[] + AccountInfo[] com os Rc<RefCell<..>> (ABI Rust) no heap.
+fn cpi_rust(h: &mut Heap, program: &Pubkey, metas: &[CpiAcc], infos: &[CpiAcc], data: &[u8]) -> (u64, u64) {
+    let mut ma = vec![];
+    for m in metas {
+        ma.extend_from_slice(m.key.as_ref());
+        ma.extend_from_slice(&[m.signer as u8, m.writable as u8]);
+    }
+    let metas_addr = if ma.is_empty() { HEAP } else { h.put(&ma) };
+    let data_addr = if data.is_empty() { HEAP } else { h.put(data) };
+    let mut ix = vec![];
+    for v in [metas_addr, metas.len() as u64, metas.len() as u64, data_addr, data.len() as u64, data.len() as u64] {
+        ix.extend_from_slice(&v.to_le_bytes());
+    }
+    ix.extend_from_slice(program.as_ref());
+    let ix_addr = h.put(&ix);
+    let mut ia = vec![];
+    for a in infos {
+        let mut lam = vec![];
+        for v in [1u64, 1, 0, a.m + 72] {
+            lam.extend_from_slice(&v.to_le_bytes());
+        }
+        let lam_rc = h.put(&lam);
+        let mut dat = vec![];
+        for v in [1u64, 1, 0, a.m + 88, a.len] {
+            dat.extend_from_slice(&v.to_le_bytes());
+        }
+        let data_rc = h.put(&dat);
+        for v in [a.m + 8, lam_rc, data_rc, a.m + 40, 0] {
+            ia.extend_from_slice(&v.to_le_bytes());
+        }
+        ia.extend_from_slice(&[a.signer as u8, a.writable as u8, 0, 0, 0, 0, 0, 0]);
+    }
+    let infos_addr = h.put(&ia);
+    (ix_addr, infos_addr)
+}
+
+fn sys_transfer(lamports: u64) -> Vec<u8> {
+    [vec![2, 0, 0, 0], lamports.to_le_bytes().to_vec()].concat()
+}
+
+struct CpiSpec {
+    rust: bool,
+    callee: Vec<(Pubkey, bool, bool)>, // chave, signer, writable
+    infos: Vec<Pubkey>,
+    data: Vec<u8>,
+    signers: Vec<Vec<Vec<u8>>>,
+    watch: Option<(Pubkey, u64)>, // u64 a logar depois da CPI: conta + offset no registro
+    infos_in_input: bool,
+    bad_key_ptr: bool,
+    bad_bool: bool,
+}
+
+impl CpiSpec {
+    fn new(callee: Vec<(Pubkey, bool, bool)>, infos: Vec<Pubkey>, data: Vec<u8>, signers: Vec<Vec<Vec<u8>>>) -> Self {
+        CpiSpec { rust: false, callee, infos, data, signers, watch: None, infos_in_input: false, bad_key_ptr: false, bad_bool: false }
+    }
+}
+
+fn cpi_case(name: &'static str, program_id: &Pubkey, accounts: Vec<(Pubkey, Account)>, metas: Vec<AccountMeta>, sp: CpiSpec) -> Case<'static> {
+    let ms = markers(&accounts, &metas);
+    let acc = |k: &Pubkey| -> CpiAcc {
+        let i = metas.iter().position(|m| m.pubkey == *k);
+        let len = accounts.iter().find(|(kk, _)| kk == k).map(|(_, a)| a.data.len() as u64).unwrap_or(0);
+        CpiAcc { key: *k, m: i.map(|i| ms[i]).unwrap_or(0), len, signer: i.map(|i| metas[i].is_signer).unwrap_or(false), writable: i.map(|i| metas[i].is_writable).unwrap_or(false) }
+    };
+    let callee: Vec<CpiAcc> = sp.callee.iter().map(|(k, sg, wr)| CpiAcc { signer: *sg, writable: *wr, ..acc(k) }).collect();
+    let infos: Vec<CpiAcc> = sp.infos.iter().map(|k| acc(k)).collect();
+    let mut h = Heap::default();
+    let system = Pubkey::default();
+    let (ix_addr, infos_addr) = if sp.rust { cpi_rust(&mut h, &system, &callee, &infos, &sp.data) } else { cpi_c(&mut h, &system, &callee, &infos, &sp.data) };
+    if sp.bad_key_ptr {
+        let o = (infos_addr - HEAP) as usize;
+        let bad = infos[0].m + 16;
+        h.bytes[o..o + 8].copy_from_slice(&bad.to_le_bytes());
+    }
+    if sp.bad_bool {
+        let o = (ix_addr - HEAP) as usize + 8;
+        let metas_addr = u64::from_le_bytes(h.bytes[o..o + 8].try_into().unwrap());
+        h.bytes[(metas_addr - HEAP) as usize + 9] = 2;
+    }
+    let signers = if sp.signers.is_empty() { 0 } else { h.signers(&sp.signers) };
+    let watch = sp.watch.map(|(k, off)| acc(&k).m + off).unwrap_or(0);
+    let op = if sp.rust { 3 } else { 2 };
+    let args = [ix_addr, infos_addr, infos.len() as u64, signers, sp.signers.len() as u64];
+    let mut data = pda_ix(op, args, watch, &h);
+    if sp.infos_in_input {
+        // o mesmo array, mas na cópia que está nos dados da instrução (região de input)
+        let (_, ix_off) = serialize(program_id, &accounts, &metas, &data);
+        let a2 = ix_off + 64 + (infos_addr - HEAP);
+        data = pda_ix(op, [ix_addr, a2, args[2], args[3], args[4]], watch, &h);
+    }
+    Case { name, program: "pda_program", accounts, metas, data }
+}
+
 fn main() {
     let dir = std::env::args().nth(1).expect("uso: sbpf-runtime-reference <dir com os .so>");
     let dir = Path::new(&dir);
@@ -187,6 +530,100 @@ fn main() {
     ];
     let system = mollusk_svm::program::keyed_account_for_system_program();
     cases.push(Case { name: "simple_transfer_cpi", program: "simple_transfer_program", accounts: vec![(target, account(Pubkey::default(), 1_000_000, vec![])), (other, account(Pubkey::default(), 0, vec![])), system.clone()], metas: vec![AccountMeta::new(target, true), w(other), r(system.0)], data: 1_000_000u64.to_be_bytes().to_vec() });
+
+
+    // --- erros da CPI com o programa real (ABI Rust, `invoke`)
+    let st = |name: &'static str, t: Account, metas: Vec<AccountMeta>, amount: u64, third: (Pubkey, Account)| Case {
+        name,
+        program: "simple_transfer_program",
+        accounts: vec![(target, t), (other, account(Pubkey::default(), 0, vec![])), third],
+        metas,
+        data: amount.to_be_bytes().to_vec(),
+    };
+    let sys_meta = r(system.0);
+    cases.push(st("simple_transfer_insufficient", account(Pubkey::default(), 999_999, vec![]), vec![AccountMeta::new(target, true), w(other), sys_meta.clone()], 1_000_000, system.clone()));
+    cases.push(st("simple_transfer_not_signer", account(Pubkey::default(), 1_000_000, vec![]), vec![w(target), w(other), sys_meta.clone()], 1_000_000, system.clone()));
+    cases.push(st("simple_transfer_readonly_recipient", account(Pubkey::default(), 1_000_000, vec![]), vec![AccountMeta::new(target, true), r(other), sys_meta.clone()], 1_000_000, system.clone()));
+    cases.push(st("simple_transfer_wrong_program", account(Pubkey::default(), 1_000_000, vec![]), vec![AccountMeta::new(target, true), w(other), r(key(0x03))], 1_000_000, (key(0x03), account(Pubkey::default(), 0, vec![]))));
+    cases.push(st("simple_transfer_payer_with_data", account(Pubkey::default(), 1_000_000, vec![1, 2, 3]), vec![AccountMeta::new(target, true), w(other), sys_meta.clone()], 1_000_000, system.clone()));
+    cases.push(st("simple_transfer_zero", account(Pubkey::default(), 1_000_000, vec![]), vec![AccountMeta::new(target, true), w(other), sys_meta.clone()], 0, system.clone()));
+
+    // --- PDAs (programa de teste em assembly)
+    fs::write(dir.join("pda_program.so"), pda_program()).unwrap();
+    let (vault, vbump) = Pubkey::find_program_address(&[b"vault"], &program_id);
+    let vseeds = vec![b"vault".to_vec(), vec![vbump]];
+    let pda_case = |name: &'static str, op: u64, seeds: Vec<Vec<u8>>, bump_overlap: bool| {
+        let mut h = Heap::default();
+        let sa = h.seeds(&seeds);
+        let pa = h.put(program_id.as_ref());
+        let out = h.put(&[0u8; 32]);
+        let bump = if op == 1 {
+            if bump_overlap { out + 5 } else { h.put(&[0u8; 8]) }
+        } else {
+            0
+        };
+        Case { name, program: "pda_program", accounts: vec![], metas: vec![], data: pda_ix(op, [sa, seeds.len() as u64, pa, out, bump], 0, &h) }
+    };
+    let on_curve = (0u8..=255).find(|i| Pubkey::create_program_address(&[&[*i]], &program_id).is_err()).unwrap();
+    let slow = (0u8..=255).find(|i| Pubkey::find_program_address(&[b"slow", &[*i]], &program_id).1 <= 250).unwrap();
+    cases.push(pda_case("pda_create", 0, vseeds.clone(), false));
+    cases.push(pda_case("pda_create_on_curve", 0, vec![vec![on_curve]], false));
+    cases.push(pda_case("pda_create_no_seeds", 0, vec![], false));
+    cases.push(pda_case("pda_create_seed_too_long", 0, vec![vec![7; 33]], false));
+    cases.push(pda_case("pda_create_too_many_seeds", 0, vec![vec![1]; 17], false));
+    cases.push(pda_case("pda_find", 1, vec![b"vault".to_vec()], false));
+    cases.push(pda_case("pda_find_many_bumps", 1, vec![b"slow".to_vec(), vec![slow]], false));
+    cases.push(pda_case("pda_find_overlapping_bump", 1, vec![b"vault".to_vec()], true));
+
+    // --- CPI ao system program assinando com o PDA (ABI C e Rust)
+    let sysk = Pubkey::default();
+    let pda_tx = |vault_lamports: u64, vault_data: Vec<u8>| {
+        (vec![(vault, account(sysk, vault_lamports, vault_data)), (other, account(sysk, 0, vec![])), system.clone()], vec![w(vault), w(other), sys_meta.clone()])
+    };
+    let tr = |signers: Vec<Vec<Vec<u8>>>| CpiSpec { watch: Some((vault, 72)), ..CpiSpec::new(vec![(vault, true, true), (other, false, true)], vec![vault, other], sys_transfer(1000), signers) };
+    let (a, m) = pda_tx(5000, vec![]);
+    cases.push(cpi_case("cpi_c_transfer_pda", &program_id, a.clone(), m.clone(), tr(vec![vseeds.clone()])));
+    cases.push(cpi_case("cpi_rust_transfer_pda", &program_id, a.clone(), m.clone(), CpiSpec { rust: true, ..tr(vec![vseeds.clone()]) }));
+    cases.push(cpi_case("cpi_c_transfer_pda_no_seeds", &program_id, a.clone(), m.clone(), tr(vec![])));
+    cases.push(cpi_case("cpi_c_transfer_pda_wrong_seeds", &program_id, a.clone(), m.clone(), tr(vec![vec![b"vault".to_vec(), vec![vbump.wrapping_add(1)]]])));
+    cases.push(cpi_case("cpi_c_infos_in_input", &program_id, a.clone(), m.clone(), CpiSpec { infos_in_input: true, ..tr(vec![vseeds.clone()]) }));
+    cases.push(cpi_case("cpi_c_bad_key_pointer", &program_id, a.clone(), m.clone(), CpiSpec { bad_key_ptr: true, ..tr(vec![vseeds.clone()]) }));
+    cases.push(cpi_case("cpi_c_bad_meta_bool", &program_id, a.clone(), m.clone(), CpiSpec { bad_bool: true, ..tr(vec![vseeds.clone()]) }));
+    cases.push(cpi_case("cpi_c_too_many_signers", &program_id, a.clone(), m.clone(), tr(vec![vec![b"x".to_vec()]; 17])));
+    cases.push(cpi_case("cpi_c_signer_too_many_seeds", &program_id, a.clone(), m.clone(), tr(vec![vec![vec![1]; 17]])));
+    cases.push(cpi_case("cpi_c_signer_seed_too_long", &program_id, a.clone(), m.clone(), tr(vec![vec![vec![1; 33]]])));
+    cases.push(cpi_case("cpi_c_unknown_account", &program_id, a.clone(), m.clone(), CpiSpec::new(vec![(vault, true, true), (key(0x33), false, true)], vec![vault], sys_transfer(1000), vec![vseeds.clone()])));
+    cases.push(cpi_case("cpi_c_missing_info", &program_id, a.clone(), m.clone(), CpiSpec::new(vec![(vault, true, true), (other, false, true)], vec![vault], sys_transfer(1000), vec![vseeds.clone()])));
+    cases.push(cpi_case("cpi_c_transfer_to_self", &program_id, a.clone(), m.clone(), CpiSpec { watch: Some((vault, 72)), ..CpiSpec::new(vec![(vault, true, true), (vault, true, true)], vec![vault], sys_transfer(1000), vec![vseeds.clone()]) }));
+    let (a2, _) = pda_tx(5000, vec![]);
+    cases.push(cpi_case("cpi_c_readonly_escalation", &program_id, a2, vec![w(vault), r(other), sys_meta.clone()], tr(vec![vseeds.clone()])));
+    let (a, m) = pda_tx(500, vec![]);
+    cases.push(cpi_case("cpi_c_insufficient", &program_id, a, m, tr(vec![vseeds.clone()])));
+    let (a, m) = pda_tx(5000, vec![1, 2, 3]);
+    cases.push(cpi_case("cpi_c_from_with_data", &program_id, a, m, tr(vec![vseeds.clone()])));
+
+    // CreateAccount / Allocate / Assign no PDA (dados e dono mudam dentro da CPI)
+    let create = |space: u64| [vec![0, 0, 0, 0], 500_000u64.to_le_bytes().to_vec(), space.to_le_bytes().to_vec(), program_id.to_bytes().to_vec()].concat();
+    let ca_tx = |vault_lamports: u64| {
+        (
+            vec![(target, account(sysk, 1_000_000, vec![])), (vault, account(sysk, vault_lamports, vec![])), system.clone()],
+            vec![AccountMeta::new(target, true), w(vault), sys_meta.clone()],
+        )
+    };
+    let ca = |data: Vec<u8>| CpiSpec { watch: Some((vault, 80)), ..CpiSpec::new(vec![(target, true, true), (vault, true, true)], vec![target, vault], data, vec![vseeds.clone()]) };
+    let (a, m) = ca_tx(0);
+    cases.push(cpi_case("cpi_c_create_account_pda", &program_id, a.clone(), m.clone(), ca(create(16))));
+    cases.push(cpi_case("cpi_rust_create_account_pda", &program_id, a.clone(), m.clone(), CpiSpec { rust: true, ..ca(create(16)) }));
+    cases.push(cpi_case("cpi_c_create_account_too_big", &program_id, a.clone(), m.clone(), ca(create(10 * 1024 * 1024 + 1))));
+    let (a, m) = ca_tx(1);
+    cases.push(cpi_case("cpi_c_create_account_in_use", &program_id, a, m, ca(create(16))));
+    let one = |data: Vec<u8>, off: u64| CpiSpec { watch: Some((vault, off)), ..CpiSpec::new(vec![(vault, true, true)], vec![vault], data, vec![vseeds.clone()]) };
+    let solo = vec![(vault, account(sysk, 1000, vec![])), system.clone()];
+    let solo_m = vec![w(vault), sys_meta.clone()];
+    cases.push(cpi_case("cpi_c_allocate_pda", &program_id, solo.clone(), solo_m.clone(), one([vec![8, 0, 0, 0], 64u64.to_le_bytes().to_vec()].concat(), 80)));
+    cases.push(cpi_case("cpi_c_assign_pda", &program_id, solo.clone(), solo_m.clone(), one([vec![1, 0, 0, 0], program_id.to_bytes().to_vec()].concat(), 40)));
+    cases.push(cpi_case("cpi_c_assign_without_seeds", &program_id, solo.clone(), solo_m.clone(), CpiSpec { signers: vec![], ..one([vec![1, 0, 0, 0], program_id.to_bytes().to_vec()].concat(), 40) }));
+    cases.push(cpi_case("cpi_c_bad_system_instruction", &program_id, solo.clone(), solo_m.clone(), one(vec![2, 0], 72)));
 
     let mut out = vec![];
     for c in &cases {

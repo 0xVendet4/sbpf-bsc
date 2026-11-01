@@ -20,7 +20,9 @@ function envOf(f) {
   return { programId: f.programId, maxCu: f.maxCu, r2: BigInt(f.ixDataOffset), sysvars: [{ id: SV_CLOCK, data: f.sysvars.clock }] };
 }
 
-const CPI = new Set(["simple_transfer_cpi"]); // ainda sem CPI
+// Programas que fazem CPI: a VM suspende-se na syscall e quem continua é o SolanaRuntime (com o
+// SolanaCpi); esses casos são conferidos em Runtime.test.js.
+const usesCpi = (f) => f.name.startsWith("cpi_") || f.program === "simple_transfer_program";
 
 describe("SolanaVM — programas Solana reais (diferencial contra o Mollusk/agave)", function () {
   let vm;
@@ -43,9 +45,8 @@ describe("SolanaVM — programas Solana reais (diferencial contra o Mollusk/agav
     expect((await vm.parseElf("0x7f454c46")).ok).to.equal(false);
   });
 
-  for (const f of fixtures) {
-    const it_ = CPI.has(f.name) ? it.skip : it;
-    it_(`${f.name} (${f.program})`, async () => {
+  for (const f of fixtures.filter((x) => !usesCpi(x))) {
+    it(`${f.name} (${f.program})`, async () => {
       const r = await vm.runElf(f.elf, regionsOf(f), envOf(f));
       const got = finish(f, r);
       const e = f.expect;

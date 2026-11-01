@@ -29,7 +29,8 @@ contract SolanaVM {
         CuExceeded, // ExceededMaxInstructions / ComputationalBudgetExceeded
         CallDepthExceeded,
         CallOutsideTextSegment,
-        SyscallError // ver `err`
+        SyscallError, // ver `err`
+        Cpi // suspensa numa CPI (sol_invoke_signed_*): estado em `suspended`, `err` = 1 se Rust, 0 se C
     }
 
     // códigos de `Result.err` quando status == SyscallError (SyscallError do agave)
@@ -45,6 +46,10 @@ contract SolanaVM {
     uint64 public constant E_ARITHMETIC_OVERFLOW = 10;
     uint64 public constant E_TOO_MANY_SLICES = 11;
     uint64 public constant E_UNSUPPORTED_SYSVAR = 12;
+    /// @notice InstructionError devolvido por uma syscall (CPI, gerado pelo SolanaCpi): err = 13 | índice << 8 | custom << 32
+    uint64 public constant E_INSTRUCTION = 13;
+    /// @notice erro específico da CPI/PDA (CpiError, SyscallError::BadSeeds): err = 14 | subcódigo << 8 | n << 32
+    uint64 public constant E_CPI = 14;
 
     /// @notice Região de memória de input. `reserved` ≥ data.length permite crescer (realloc).
     struct Region {
@@ -66,6 +71,19 @@ contract SolanaVM {
         Sysvar[] sysvars;
     }
 
+    /// @notice Estado de uma execução suspensa numa CPI: o runtime executa a instrução chamada e
+    ///         retoma a VM com `resumeElfVerified` (as regiões de input voltam em `Result.regions`).
+    struct Suspended {
+        uint64[11] regs; // r0..r10 no momento da syscall (r1..r5 são os argumentos)
+        uint64 pc; // próxima instrução
+        uint64 cu; // compute units consumidas
+        uint64 depth; // profundidade de chamadas internas
+        bytes frames; // frames salvos (64 bytes cada)
+        bytes stack; // bytes já alocados da pilha
+        bytes heap; // bytes já alocados do heap
+        bytes returnData;
+    }
+
     struct Result {
         Status status;
         uint64 err;
@@ -76,6 +94,7 @@ contract SolanaVM {
         bytes returnData;
         bytes logs; // entradas [tipo:1][tamanho:4][payload]; tipo 0 texto, 1 pubkey, 2 campos, 3 panic
         bytes[] regions; // conteúdo final de cada região de input
+        Suspended suspended; // só com status Cpi
     }
 
     uint64 public constant RODATA_START = 0;
@@ -167,7 +186,7 @@ contract SolanaVM {
     uint256 private constant PID = 608;
     uint256 private constant MAXCU = 640;
     uint256 private constant NREG = 672;
-    uint256 private constant FAULT = 736; // (704 reservado)
+    uint256 private constant FAULT = 736;
     uint256 private constant FRAMES = 768; // 64 frames × 64 bytes
     uint256 private constant REGTAB = 4864; // MAX_REGIONS × 5 palavras: start, len, host, flags, reserved
     uint256 private constant VM_BYTES = 4864 + 128 * 160;
@@ -179,7 +198,7 @@ contract SolanaVM {
     // ------------------------------------------------------------------ API
 
     /// @notice Executa um ELF (programa Solana compilado para sBPF v3).
-    function runElf(bytes calldata elf, Region[] calldata input, Env calldata env) external pure returns (Result memory r) {
+    function runElf(bytes calldata elf, Region[] calldata input, Env calldata env) external view returns (Result memory r) {
         (bool ok, uint256 textOff, uint256 textLen, uint256 roOff, uint256 roLen, uint64 entry) = parseElf(elf);
         if (!ok) {
             r.status = Status.Invalid;
@@ -190,13 +209,42 @@ contract SolanaVM {
 
     /// @notice Como `runElf`, mas sem passar o verificador: só para ELFs já aceites por
     ///         `verifyElf` (o verificador custa ~700 gás por instrução do programa inteiro).
-    function runElfVerified(bytes calldata elf, Region[] calldata input, Env calldata env) external pure returns (Result memory r) {
+    function runElfVerified(bytes calldata elf, Region[] calldata input, Env calldata env) external view returns (Result memory r) {
         (bool ok, uint256 textOff, uint256 textLen, uint256 roOff, uint256 roLen, uint64 entry) = parseElf(elf);
         if (!ok) {
             r.status = Status.Invalid;
             return r;
         }
         return _run(elf[textOff:textOff + textLen], entry, elf[roOff:roOff + roLen], input, env);
+    }
+
+    /// @notice Retoma uma execução suspensa numa CPI (status `Cpi`), com r0 = 0 (a CPI deu certo).
+    ///         `input` são as regiões de input depois da CPI (mesma ordem e endereços do `runElf`).
+    function resumeElfVerified(bytes calldata elf, Region[] calldata input, Env calldata env, Suspended calldata s)
+        external
+        view
+        returns (Result memory r)
+    {
+        (bool ok, uint256 textOff, uint256 textLen, uint256 roOff, uint256 roLen, ) = parseElf(elf);
+        if (!ok) {
+            r.status = Status.Invalid;
+            return r;
+        }
+        return _resume(elf[textOff:textOff + textLen], elf[roOff:roOff + roLen], input, env, s);
+    }
+
+    function _resume(bytes calldata text, bytes calldata rodata, Region[] calldata input, Env calldata env, Suspended calldata s)
+        private
+        view
+        returns (Result memory r)
+    {
+        if (s.pc >= text.length / 8) {
+            r.status = Status.Invalid;
+            return r;
+        }
+        uint256 vm = _setup(rodata, input, env);
+        _restore(vm, s);
+        return _loop(vm, text, input, env);
     }
 
     /// @notice Carrega o ELF e verifica o bytecode (o que o loader do Solana faz uma vez, ao publicar).
@@ -208,7 +256,7 @@ contract SolanaVM {
     /// @notice Executa bytecode sBPF v3 já extraído: `text` é verificado; `rodata` é mapeado em 0.
     function run(bytes calldata text, uint64 entry, bytes calldata rodata, Region[] calldata input, Env calldata env)
         external
-        pure
+        view
         returns (Result memory r)
     {
         return _run(text, uint256(entry) | (1 << 64), rodata, input, env);
@@ -217,7 +265,7 @@ contract SolanaVM {
     /// @dev `entryAndCheck` = entry | (verificar ? 1 << 64 : 0).
     function _run(bytes calldata text, uint256 entryAndCheck, bytes calldata rodata, Region[] calldata input, Env calldata env)
         private
-        pure
+        view
         returns (Result memory r)
     {
         uint256 n = text.length / 8;
@@ -233,6 +281,56 @@ contract SolanaVM {
             mstore(add(vm, 320), add(STACK_START, FRAME_SIZE)) // r10 = topo do primeiro frame
             mstore(add(vm, PC), entry)
         }
+        return _loop(vm, text, input, env);
+    }
+
+    /// @dev Repõe registos, medidor, frames, pilha, heap e return data de uma execução suspensa.
+    function _restore(uint256 vm, Suspended calldata s) private pure {
+        uint64 ip = s.pc;
+        uint64 cu = s.cu;
+        uint64 depth = s.depth;
+        bytes calldata frames = s.frames;
+        if (frames.length > 4096 || depth > MAX_CALL_DEPTH) revert BadSnapshot();
+        assembly ("memory-safe") {
+            calldatacopy(vm, s, 352) // r0..r10 (uint64[11] ocupa as primeiras 11 palavras da struct)
+            mstore(add(vm, PC), ip)
+            mstore(add(vm, CU), cu)
+            mstore(add(vm, DEPTH), depth)
+            calldatacopy(add(vm, FRAMES), frames.offset, frames.length)
+        }
+        _sparse(vm, 1, s.stack);
+        _sparse(vm, 2, s.heap);
+        bytes calldata ret = s.returnData;
+        if (ret.length > MAX_RETURN_DATA) revert BadSnapshot();
+        assembly ("memory-safe") {
+            calldatacopy(mload(add(vm, RETP)), ret.offset, ret.length)
+            mstore(add(vm, RETL), ret.length)
+        }
+    }
+
+    /// @dev Repõe os bytes alocados de uma região esparsa (pilha ou heap).
+    function _sparse(uint256 vm, uint256 i, bytes calldata data) private pure {
+        uint256 e = vm + REGTAB + i * 160;
+        uint256 cap = data.length;
+        uint256 size;
+        assembly ("memory-safe") {
+            size := mload(add(e, 32))
+        }
+        if (cap > size) revert BadSnapshot();
+        if (cap == 0) return;
+        uint256 p = _alloc(cap);
+        assembly ("memory-safe") {
+            calldatacopy(p, data.offset, cap)
+            mstore(add(e, 64), p)
+            mstore(add(e, 96), or(3, shl(64, cap)))
+        }
+    }
+
+    error BadSnapshot();
+
+    /// @dev Corre até parar e monta o resultado.
+    function _loop(uint256 vm, bytes calldata text, Region[] calldata input, Env calldata env) private view returns (Result memory r) {
+        uint256 n = text.length / 8;
         uint256 codeOff;
         assembly {
             codeOff := text.offset
@@ -245,6 +343,10 @@ contract SolanaVM {
             (st, err) = _syscall(vm, env);
             if (st != 0) break;
         }
+        return _result(vm, st, err, input.length);
+    }
+
+    function _result(uint256 vm, uint256 st, uint64 err, uint256 nInput) private pure returns (Result memory r) {
         r.status = Status(st);
         r.err = err;
         uint256 cu;
@@ -263,19 +365,57 @@ contract SolanaVM {
         r.fault = fault;
         r.returnData = _take(vm, RETP, RETL);
         r.logs = _take(vm, LOGP, LOGL);
-        r.regions = new bytes[](input.length);
-        for (uint256 i = 0; i < input.length; i++) {
-            uint256 e = vm + REGTAB + (3 + i) * 160;
-            bytes memory out;
-            assembly ("memory-safe") {
-                let len := mload(add(e, 32))
-                out := mload(0x40)
-                mstore(0x40, add(out, and(add(len, 63), not(31))))
-                mstore(out, len)
-                mcopy(add(out, 32), mload(add(e, 64)), len)
-            }
-            r.regions[i] = out;
+        r.regions = new bytes[](nInput);
+        for (uint256 i = 0; i < nInput; i++) {
+            r.regions[i] = _regionBytes(vm, 3 + i);
         }
+        if (st == uint256(Status.Cpi)) _snapshot(vm, r.suspended);
+    }
+
+    /// @dev Conteúdo de uma região (os `len` bytes a partir do host; esparsa: os alocados).
+    function _regionBytes(uint256 vm, uint256 i) private pure returns (bytes memory out) {
+        uint256 e = vm + REGTAB + i * 160;
+        assembly ("memory-safe") {
+            let len := mload(add(e, 32))
+            let fl := mload(add(e, 96))
+            if and(shr(1, fl), 1) { len := shr(64, fl) }
+            out := mload(0x40)
+            mstore(0x40, add(out, and(add(len, 63), not(31))))
+            mstore(out, len)
+            mcopy(add(out, 32), mload(add(e, 64)), len)
+        }
+    }
+
+    /// @dev Guarda o estado da VM suspensa numa CPI.
+    function _snapshot(uint256 vm, Suspended memory s) private pure {
+        uint256 depth;
+        assembly ("memory-safe") {
+            depth := mload(add(vm, DEPTH))
+        }
+        for (uint256 i = 0; i < 11; i++) {
+            uint256 v;
+            assembly ("memory-safe") {
+                v := mload(add(vm, mul(i, 32)))
+            }
+            s.regs[i] = uint64(v);
+        }
+        uint256 ip;
+        uint256 cu;
+        assembly ("memory-safe") {
+            ip := mload(add(vm, PC))
+            cu := mload(add(vm, CU))
+        }
+        s.pc = uint64(ip);
+        s.cu = uint64(cu);
+        s.depth = uint64(depth);
+        bytes memory frames = new bytes(depth * 64);
+        assembly ("memory-safe") {
+            mcopy(add(frames, 32), add(vm, FRAMES), mload(frames))
+        }
+        s.frames = frames;
+        s.stack = _regionBytes(vm, 1);
+        s.heap = _regionBytes(vm, 2);
+        s.returnData = _take(vm, RETP, RETL);
     }
 
     // ------------------------------------------------------------------ ELF
@@ -928,7 +1068,7 @@ contract SolanaVM {
 
     /// @dev Despacha a syscall pendente (hash em vm+SC). Devolve (0, 0) para continuar, ou o
     ///      status final e o código de erro.
-    function _syscall(uint256 vm, Env calldata env) private pure returns (uint256 st, uint64 err) {
+    function _syscall(uint256 vm, Env calldata env) private view returns (uint256 st, uint64 err) {
         uint256 h;
         uint256 a1;
         uint256 a2;
@@ -964,11 +1104,15 @@ contract SolanaVM {
         if (h == H_SOL_KECCAK256) return _sysHash(vm, a1, a2, a3, true);
         if (h == H_SOL_PANIC) return _sysPanic(vm, a1, a2, a3, a4);
         if (h == H_ABORT) return (uint256(Status.SyscallError), E_ABORT);
+        if (h == H_SOL_INVOKE_SIGNED_RUST) return (uint256(Status.Cpi), 1); // o runtime executa a CPI e retoma
+        if (h == H_SOL_INVOKE_SIGNED_C) return (uint256(Status.Cpi), 0);
+        if (h == H_SOL_CREATE_PROGRAM_ADDRESS) return _sysProgramAddress(vm, false);
+        if (h == H_SOL_TRY_FIND_PROGRAM_ADDRESS) return _sysProgramAddress(vm, true);
         if (
-            h == H_SOL_CREATE_PROGRAM_ADDRESS || h == H_SOL_TRY_FIND_PROGRAM_ADDRESS || h == H_SOL_SECP256K1_RECOVER
+            h == H_SOL_SECP256K1_RECOVER
                 || h == H_SOL_BLAKE3 || h == H_SOL_SHA512 || h == H_SOL_CURVE_VALIDATE_POINT || h == H_SOL_CURVE_GROUP_OP
                 || h == H_SOL_CURVE_MULTISCALAR_MUL || h == H_SOL_CURVE_DECOMPRESS || h == H_SOL_CURVE_PAIRING_MAP
-                || h == H_SOL_GET_PROCESSED_SIBLING_INSTRUCTION || h == H_SOL_INVOKE_SIGNED_C || h == H_SOL_INVOKE_SIGNED_RUST
+                || h == H_SOL_GET_PROCESSED_SIBLING_INSTRUCTION
                 || h == H_SOL_ALT_BN128_GROUP_OP || h == H_SOL_BIG_MOD_EXP || h == H_SOL_POSEIDON
                 || h == H_SOL_ALT_BN128_COMPRESSION || h == H_SOL_GET_EPOCH_STAKE
         ) return (uint256(Status.SyscallError), E_UNIMPLEMENTED);
@@ -1489,4 +1633,155 @@ contract SolanaVM {
             v /= 10;
         }
     }
+    // ------------------------------------------------------------------ PDAs
+    //
+    // sol_create_program_address / sol_try_find_program_address (agave 4.3). A CPI em si
+    // (sol_invoke_signed_*) suspende a VM: o SolanaRuntime executa a instrução chamada com o
+    // SolanaCpi e retoma a execução com `resumeElfVerified`.
+
+    uint256 private constant CREATE_PROGRAM_ADDRESS_UNITS = 1500;
+    uint256 private constant MAX_SEEDS = 16;
+    uint256 private constant MAX_SEED_LEN = 32;
+    uint256 private constant ED_P = 0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffed;
+    uint256 private constant ED_D = 37095705934669439343138083508754565189542113879843219016388785533085940283555;
+
+    function _cpiErr(uint256 sub, uint256 n) private pure returns (uint256 st, uint64 err) {
+        return (uint256(Status.SyscallError), uint64(uint256(E_CPI) | (sub << 8) | ((n & 0xffffffff) << 32)));
+    }
+
+    function _b32m(uint256 p) private pure returns (bytes32 v) {
+        assembly ("memory-safe") {
+            v := mload(p)
+        }
+    }
+
+    // --- derivação de endereços (PDA)
+
+    /// @dev sha256(seeds || programId || "ProgramDerivedAddress"); ok = fora da curva ed25519.
+    function _pda(bytes memory seeds, bytes32 programId) private view returns (bool ok, bytes32 h) {
+        h = sha256(bytes.concat(seeds, programId, "ProgramDerivedAddress"));
+        ok = !_onCurve(h);
+    }
+
+    /// @dev `CompressedEdwardsY::decompress().is_some()`: y = bytes LE sem o bit de sinal;
+    ///      u = y²−1, v = d·y²+1; válido se u = 0, ou v ≠ 0 e u/v é resíduo quadrático.
+    function _onCurve(bytes32 h) private view returns (bool) {
+        uint256 y;
+        for (uint256 i = 0; i < 32; i++) y |= uint256(uint8(h[i])) << (8 * i);
+        y = (y & ((1 << 255) - 1)) % ED_P;
+        uint256 yy = mulmod(y, y, ED_P);
+        uint256 u = addmod(yy, ED_P - 1, ED_P);
+        uint256 v = addmod(mulmod(ED_D, yy, ED_P), 1, ED_P);
+        if (u == 0) return true;
+        if (v == 0) return false;
+        return _modexp(mulmod(u, v, ED_P), (ED_P - 1) / 2, ED_P) == 1;
+    }
+
+    function _modexp(uint256 b, uint256 e, uint256 m) private view returns (uint256 r) {
+        assembly ("memory-safe") {
+            let p := mload(0x40)
+            mstore(p, 32)
+            mstore(add(p, 32), 32)
+            mstore(add(p, 64), 32)
+            mstore(add(p, 96), b)
+            mstore(add(p, 128), e)
+            mstore(add(p, 160), m)
+            if iszero(staticcall(gas(), 5, p, 192, p, 32)) { revert(0, 0) }
+            r := mload(p)
+        }
+    }
+
+    /// @dev Lê `n` VmSlices (ptr, len) em `addr` e devolve as fatias concatenadas; `maxLen` por fatia
+    ///      (0 = sem limite). Erros: tradução, e `tooLong` quando alguma passa de maxLen.
+    function _seedBytes(uint256 vm, uint256 addr, uint256 n, uint256 maxLen) private pure returns (uint256 st, uint64 err, bytes memory out, bool tooLong) {
+        uint256 vals;
+        (st, err, vals) = _slice(vm, addr, n * 16, 8, false);
+        if (st != 0) return (st, err, out, false);
+        for (uint256 i = 0; i < n; i++) {
+            uint256 fl = _u64m(vals + i * 16 + 8);
+            if (maxLen != 0 && fl > maxLen) return (0, 0, out, true);
+            uint256 host;
+            (st, err, host) = _slice(vm, _u64m(vals + i * 16), fl, 1, false);
+            if (st != 0) return (st, err, out, false);
+            bytes memory part = new bytes(fl);
+            assembly ("memory-safe") {
+                mcopy(add(part, 32), host, fl)
+            }
+            out = bytes.concat(out, part);
+        }
+    }
+
+    // sol_create_program_address(seeds, n, programId, address) / sol_try_find_program_address(..., bump)
+    function _sysProgramAddress(uint256 vm, bool tryFind) private view returns (uint256 st, uint64 err) {
+        if (!_consume(vm, CREATE_PROGRAM_ADDRESS_UNITS)) return (uint256(Status.CuExceeded), 0);
+        uint256 n;
+        uint256 a1;
+        assembly ("memory-safe") {
+            a1 := mload(add(vm, 32))
+            n := mload(add(vm, 64))
+        }
+        if (n > MAX_SEEDS) return _cpiErr(3, 0);
+        bytes memory seeds;
+        bool tooLong;
+        (st, err, seeds, tooLong) = _seedBytes(vm, a1, n, MAX_SEED_LEN);
+        if (st != 0) return (st, err);
+        if (tooLong) return _cpiErr(3, 0);
+        uint256 pidHost;
+        assembly ("memory-safe") {
+            a1 := mload(add(vm, 96))
+        }
+        (st, err, pidHost) = _slice(vm, a1, 32, 1, false);
+        if (st != 0) return (st, err);
+        return tryFind ? _findPda(vm, seeds, _b32m(pidHost)) : _createPda(vm, seeds, _b32m(pidHost));
+    }
+
+    function _createPda(uint256 vm, bytes memory seeds, bytes32 pid) private view returns (uint256 st, uint64 err) {
+        (bool ok, bytes32 h) = _pda(seeds, pid);
+        if (!ok) {
+            _setR0(vm, 1);
+            return (0, 0);
+        }
+        uint256 addr;
+        assembly ("memory-safe") {
+            addr := mload(add(vm, 128))
+        }
+        uint256 out = _map(vm, addr, 32, true);
+        if (out == 0) return (uint256(Status.AccessViolation), 0);
+        assembly ("memory-safe") {
+            mstore(out, h)
+        }
+        _setR0(vm, 0);
+    }
+
+    function _findPda(uint256 vm, bytes memory seeds, bytes32 pid) private view returns (uint256 st, uint64 err) {
+        uint256 bump = 255;
+        for (uint256 i = 0; i < 255; i++) {
+            (bool ok, bytes32 h) = _pda(bytes.concat(seeds, bytes1(uint8(bump))), pid);
+            if (ok) return _writePda(vm, h, bump);
+            if (bump > 0) bump--;
+            if (!_consume(vm, CREATE_PROGRAM_ADDRESS_UNITS)) return (uint256(Status.CuExceeded), 0);
+        }
+        _setR0(vm, 1);
+    }
+
+    function _writePda(uint256 vm, bytes32 h, uint256 bump) private pure returns (uint256 st, uint64 err) {
+        uint256 addr;
+        uint256 bumpAddr;
+        assembly ("memory-safe") {
+            addr := mload(add(vm, 128))
+            bumpAddr := mload(add(vm, 160))
+        }
+        uint256 bumpHost = _map(vm, bumpAddr, 1, true);
+        if (bumpHost == 0) return (uint256(Status.AccessViolation), 0);
+        uint256 out = _map(vm, addr, 32, true);
+        if (out == 0) return (uint256(Status.AccessViolation), 0);
+        bool nonOverlapping = out > bumpHost ? out - bumpHost >= 1 : bumpHost - out >= 32;
+        if (!nonOverlapping) return (uint256(Status.SyscallError), E_COPY_OVERLAPPING);
+        assembly ("memory-safe") {
+            mstore8(bumpHost, bump)
+            mstore(out, h)
+        }
+        _setR0(vm, 0);
+    }
+
 }

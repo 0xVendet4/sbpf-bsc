@@ -149,7 +149,7 @@ function finish(fixture, r) {
   } else {
     const inSyscall = (r.fault >> 129n) & 1n;
     const syscallErr = ["Abort", "Panic", "InvalidString", "CopyOverlapping", "InvalidPointer", "ReturnDataTooLarge", "UnalignedPointer",
-      "InvalidLength", "Unimplemented", "ArithmeticOverflow", "TooManySlices", "UnsupportedSysvar"].includes(status);
+      "InvalidLength", "Unimplemented", "ArithmeticOverflow", "TooManySlices", "UnsupportedSysvar"].includes(status) || status.startsWith("SyscallError(");
     if (!syscallErr && !(status === "AccessViolation" && inSyscall)) consumed = maxCu; // deplete_cu_meter_on_vm_failure
     if (status === "CuExceeded") { error = "ComputationalBudgetExceeded"; failure = display(error); }
     else if (status === "UnsupportedSysvar" || status === "ArithmeticOverflow") { error = status; failure = display(error); }
@@ -173,7 +173,12 @@ function finish(fixture, r) {
       error = "ProgramFailedToComplete";
       failure = `SBF program Panicked in ${p.file} at ${p.line}:${p.column}`;
     } else if (status === "Abort") { error = "ProgramFailedToComplete"; failure = "SBF program panicked"; }
-    else { error = "ProgramFailedToComplete"; failure = status; }
+    else if (status === "CopyOverlapping") { error = "ProgramFailedToComplete"; failure = "Overlapping copy"; }
+    else if ((Number(r.err) & 0xff) === 14 && ((Number(r.err) >> 8) & 0xff) === 3) {
+      // SyscallError::BadSeeds(MaxSeedLengthExceeded) (sol_create_program_address)
+      error = "ProgramFailedToComplete";
+      failure = "Could not create program address with signer seeds: Length of the seed is too long for address generation";
+    } else { error = "ProgramFailedToComplete"; failure = status; }
   }
 
   // log no formato do agave

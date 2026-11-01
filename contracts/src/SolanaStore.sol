@@ -24,6 +24,8 @@ contract SolanaStore {
     bytes32 public constant SYSTEM_PROGRAM = bytes32(0);
     /// @notice BPFLoaderUpgradeab1e11111111111111111111111 (owner das contas de programa)
     bytes32 public constant BPF_LOADER = 0x02a8f6914e88a1b0e210153ef763ae2b00c2b93d16c124d2c0537a1004800000;
+    /// @notice NativeLoader1111111111111111111111111111111 (owner dos programas builtin)
+    bytes32 public constant NATIVE_LOADER = 0x058784bf148ba4282fb012574888a9f153a07dadf765c0455c9a970380000000;
     bytes32 private constant SV_CLOCK = 0x06a7d51718c774c928566398691d5eb68b5eb8a39b4b6d5c73555b2100000000;
     bytes32 private constant SV_RENT = 0x06a7d517192c5c51218cc94c3d4af17f58daee089ba1fd44e3dbd98a00000000;
     uint64 public constant DEFAULT_COMPUTE_UNIT_LIMIT = 200_000;
@@ -258,6 +260,8 @@ contract SolanaStore {
     }
 
     function _load(bytes32 key) private view returns (SolanaRuntime.Account memory a) {
+        // o system program é um builtin: conta executável do native loader (como no agave)
+        if (key == SYSTEM_PROGRAM) return SolanaRuntime.Account(key, NATIVE_LOADER, 1, true, "system_program");
         Stored storage s = accounts_[key];
         a = SolanaRuntime.Account(key, s.owner, s.lamports, s.executable, s.data);
     }

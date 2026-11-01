@@ -8,7 +8,7 @@ module.exports = {
   // Versão fixada (ver README). Mudar exige rodar os fixtures de novo e revisar o gás.
   solidity: {
     version: "0.8.28",
-    settings: { optimizer: { enabled: true, runs: 10_000 }, evmVersion: "cancun" },
+    settings: { optimizer: { enabled: true, runs: Number(process.env.OPT_RUNS || 10_000) }, evmVersion: "cancun" },
   },
   paths: { sources: "./contracts/src", tests: "./contracts/test" },
   mocha: { timeout: 600_000 },

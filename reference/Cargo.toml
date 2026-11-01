@@ -1,0 +1,14 @@
+[package]
+name = "sbpf-reference"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Gera fixtures executando programas na VM oficial (solana-sbpf) para o teste diferencial do SbpfVM.sol"
+
+[dependencies]
+# Fonte da verdade. Versão fixada: mudar aqui exige regenerar fixtures/ e revisar a semântica.
+solana-sbpf = { version = "=0.26.0", default-features = false }
+serde_json = "=1.0.140"
+
+[profile.release]
+debug = false

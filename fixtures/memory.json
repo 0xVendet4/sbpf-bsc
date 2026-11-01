@@ -1,0 +1,1258 @@
+{
+  "fixtures": [
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0xb",
+        "status": "Ok"
+      },
+      "input": "0x0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186",
+      "maxCu": 100,
+      "name": "ldxb_input_0",
+      "program": "0x71100000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x30",
+        "status": "Ok"
+      },
+      "input": "0x0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186",
+      "maxCu": 100,
+      "name": "ldxb_input_1",
+      "program": "0x71100100000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x7a",
+        "status": "Ok"
+      },
+      "input": "0x0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186",
+      "maxCu": 100,
+      "name": "ldxb_input_3",
+      "program": "0x71100300000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x33",
+        "status": "Ok"
+      },
+      "input": "0x0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186",
+      "maxCu": 100,
+      "name": "ldxb_input_8",
+      "program": "0x71100800000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x86",
+        "status": "Ok"
+      },
+      "input": "0x0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186",
+      "maxCu": 100,
+      "name": "ldxb_input_31",
+      "program": "0x71101f00000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 1,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186",
+      "maxCu": 100,
+      "name": "ldxb_input_32",
+      "program": "0x71102000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 1,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186",
+      "maxCu": 100,
+      "name": "ldxb_input_-1",
+      "program": "0x7110ffff000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 1,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186",
+      "maxCu": 100,
+      "name": "ldxb_input_4096",
+      "program": "0x71100010000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 4,
+        "r0": "0x88",
+        "status": "Ok"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stxb_stack_-8",
+      "program": "0x180200008897a6b500000000c4d3e2f1732af8ff0000000071a0f8ff000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 3,
+        "r0": "0xfe",
+        "status": "Ok"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stb_stack_-8",
+      "program": "0x720af8fffeffffff71a0f8ff000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 4,
+        "r0": "0x88",
+        "status": "Ok"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stxb_stack_-1",
+      "program": "0x180200008897a6b500000000c4d3e2f1732affff0000000071a0ffff000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 3,
+        "r0": "0xfe",
+        "status": "Ok"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stb_stack_-1",
+      "program": "0x720afffffeffffff71a0ffff000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 4,
+        "r0": "0x88",
+        "status": "Ok"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stxb_stack_-1",
+      "program": "0x180200008897a6b500000000c4d3e2f1732affff0000000071a0ffff000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 3,
+        "r0": "0xfe",
+        "status": "Ok"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stb_stack_-1",
+      "program": "0x720afffffeffffff71a0ffff000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 4,
+        "r0": "0x88",
+        "status": "Ok"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stxb_stack_-4096",
+      "program": "0x180200008897a6b500000000c4d3e2f1732a00f00000000071a000f0000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 3,
+        "r0": "0xfe",
+        "status": "Ok"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stb_stack_-4096",
+      "program": "0x720a00f0feffffff71a000f0000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stxb_stack_-4097",
+      "program": "0x180200008897a6b500000000c4d3e2f1732affef0000000071a0ffef000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 1,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stb_stack_-4097",
+      "program": "0x720affeffeffffff71a0ffef000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 4,
+        "r0": "0x88",
+        "status": "Ok"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stxb_stack_-4095",
+      "program": "0x180200008897a6b500000000c4d3e2f1732a01f00000000071a001f0000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 3,
+        "r0": "0xfe",
+        "status": "Ok"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stb_stack_-4095",
+      "program": "0x720a01f0feffffff71a001f0000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stxb_stack_0",
+      "program": "0x180200008897a6b500000000c4d3e2f1732a00000000000071a00000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 1,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stb_stack_0",
+      "program": "0x720a0000feffffff71a00000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stxb_stack_1",
+      "program": "0x180200008897a6b500000000c4d3e2f1732a01000000000071a00100000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 1,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stb_stack_1",
+      "program": "0x720a0100feffffff71a00100000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 1,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186",
+      "maxCu": 100,
+      "name": "stb_input_readonly",
+      "program": "0x72010000010000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 1,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186",
+      "maxCu": 100,
+      "name": "stxb_input_readonly",
+      "program": "0x73110000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x300b",
+        "status": "Ok"
+      },
+      "input": "0x0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186",
+      "maxCu": 100,
+      "name": "ldxh_input_0",
+      "program": "0x69100000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x5530",
+        "status": "Ok"
+      },
+      "input": "0x0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186",
+      "maxCu": 100,
+      "name": "ldxh_input_1",
+      "program": "0x69100100000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x9f7a",
+        "status": "Ok"
+      },
+      "input": "0x0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186",
+      "maxCu": 100,
+      "name": "ldxh_input_3",
+      "program": "0x69100300000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x5833",
+        "status": "Ok"
+      },
+      "input": "0x0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186",
+      "maxCu": 100,
+      "name": "ldxh_input_8",
+      "program": "0x69100800000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x8661",
+        "status": "Ok"
+      },
+      "input": "0x0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186",
+      "maxCu": 100,
+      "name": "ldxh_input_30",
+      "program": "0x69101e00000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 1,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186",
+      "maxCu": 100,
+      "name": "ldxh_input_31",
+      "program": "0x69101f00000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 1,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186",
+      "maxCu": 100,
+      "name": "ldxh_input_-1",
+      "program": "0x6910ffff000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 1,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186",
+      "maxCu": 100,
+      "name": "ldxh_input_4096",
+      "program": "0x69100010000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 4,
+        "r0": "0x9788",
+        "status": "Ok"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stxh_stack_-8",
+      "program": "0x180200008897a6b500000000c4d3e2f16b2af8ff0000000069a0f8ff000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 3,
+        "r0": "0xfffe",
+        "status": "Ok"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "sth_stack_-8",
+      "program": "0x6a0af8fffeffffff69a0f8ff000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stxh_stack_-1",
+      "program": "0x180200008897a6b500000000c4d3e2f16b2affff0000000069a0ffff000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 1,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "sth_stack_-1",
+      "program": "0x6a0afffffeffffff69a0ffff000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 4,
+        "r0": "0x9788",
+        "status": "Ok"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stxh_stack_-2",
+      "program": "0x180200008897a6b500000000c4d3e2f16b2afeff0000000069a0feff000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 3,
+        "r0": "0xfffe",
+        "status": "Ok"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "sth_stack_-2",
+      "program": "0x6a0afefffeffffff69a0feff000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 4,
+        "r0": "0x9788",
+        "status": "Ok"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stxh_stack_-4096",
+      "program": "0x180200008897a6b500000000c4d3e2f16b2a00f00000000069a000f0000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 3,
+        "r0": "0xfffe",
+        "status": "Ok"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "sth_stack_-4096",
+      "program": "0x6a0a00f0feffffff69a000f0000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stxh_stack_-4097",
+      "program": "0x180200008897a6b500000000c4d3e2f16b2affef0000000069a0ffef000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 1,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "sth_stack_-4097",
+      "program": "0x6a0affeffeffffff69a0ffef000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 4,
+        "r0": "0x9788",
+        "status": "Ok"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stxh_stack_-4095",
+      "program": "0x180200008897a6b500000000c4d3e2f16b2a01f00000000069a001f0000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 3,
+        "r0": "0xfffe",
+        "status": "Ok"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "sth_stack_-4095",
+      "program": "0x6a0a01f0feffffff69a001f0000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stxh_stack_0",
+      "program": "0x180200008897a6b500000000c4d3e2f16b2a00000000000069a00000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 1,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "sth_stack_0",
+      "program": "0x6a0a0000feffffff69a00000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stxh_stack_1",
+      "program": "0x180200008897a6b500000000c4d3e2f16b2a01000000000069a00100000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 1,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "sth_stack_1",
+      "program": "0x6a0a0100feffffff69a00100000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 1,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186",
+      "maxCu": 100,
+      "name": "sth_input_readonly",
+      "program": "0x6a010000010000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 1,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186",
+      "maxCu": 100,
+      "name": "stxh_input_readonly",
+      "program": "0x6b110000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x7a55300b",
+        "status": "Ok"
+      },
+      "input": "0x0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186",
+      "maxCu": 100,
+      "name": "ldxw_input_0",
+      "program": "0x61100000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x9f7a5530",
+        "status": "Ok"
+      },
+      "input": "0x0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186",
+      "maxCu": 100,
+      "name": "ldxw_input_1",
+      "program": "0x61100100000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0xe9c49f7a",
+        "status": "Ok"
+      },
+      "input": "0x0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186",
+      "maxCu": 100,
+      "name": "ldxw_input_3",
+      "program": "0x61100300000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0xa27d5833",
+        "status": "Ok"
+      },
+      "input": "0x0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186",
+      "maxCu": 100,
+      "name": "ldxw_input_8",
+      "program": "0x61100800000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x86613c17",
+        "status": "Ok"
+      },
+      "input": "0x0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186",
+      "maxCu": 100,
+      "name": "ldxw_input_28",
+      "program": "0x61101c00000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 1,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186",
+      "maxCu": 100,
+      "name": "ldxw_input_29",
+      "program": "0x61101d00000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 1,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186",
+      "maxCu": 100,
+      "name": "ldxw_input_-1",
+      "program": "0x6110ffff000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 1,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186",
+      "maxCu": 100,
+      "name": "ldxw_input_4096",
+      "program": "0x61100010000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 4,
+        "r0": "0xb5a69788",
+        "status": "Ok"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stxw_stack_-8",
+      "program": "0x180200008897a6b500000000c4d3e2f1632af8ff0000000061a0f8ff000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 3,
+        "r0": "0xfffffffe",
+        "status": "Ok"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stw_stack_-8",
+      "program": "0x620af8fffeffffff61a0f8ff000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stxw_stack_-1",
+      "program": "0x180200008897a6b500000000c4d3e2f1632affff0000000061a0ffff000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 1,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stw_stack_-1",
+      "program": "0x620afffffeffffff61a0ffff000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 4,
+        "r0": "0xb5a69788",
+        "status": "Ok"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stxw_stack_-4",
+      "program": "0x180200008897a6b500000000c4d3e2f1632afcff0000000061a0fcff000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 3,
+        "r0": "0xfffffffe",
+        "status": "Ok"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stw_stack_-4",
+      "program": "0x620afcfffeffffff61a0fcff000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 4,
+        "r0": "0xb5a69788",
+        "status": "Ok"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stxw_stack_-4096",
+      "program": "0x180200008897a6b500000000c4d3e2f1632a00f00000000061a000f0000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 3,
+        "r0": "0xfffffffe",
+        "status": "Ok"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stw_stack_-4096",
+      "program": "0x620a00f0feffffff61a000f0000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stxw_stack_-4097",
+      "program": "0x180200008897a6b500000000c4d3e2f1632affef0000000061a0ffef000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 1,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stw_stack_-4097",
+      "program": "0x620affeffeffffff61a0ffef000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 4,
+        "r0": "0xb5a69788",
+        "status": "Ok"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stxw_stack_-4095",
+      "program": "0x180200008897a6b500000000c4d3e2f1632a01f00000000061a001f0000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 3,
+        "r0": "0xfffffffe",
+        "status": "Ok"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stw_stack_-4095",
+      "program": "0x620a01f0feffffff61a001f0000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stxw_stack_0",
+      "program": "0x180200008897a6b500000000c4d3e2f1632a00000000000061a00000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 1,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stw_stack_0",
+      "program": "0x620a0000feffffff61a00000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stxw_stack_1",
+      "program": "0x180200008897a6b500000000c4d3e2f1632a01000000000061a00100000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 1,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stw_stack_1",
+      "program": "0x620a0100feffffff61a00100000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 1,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186",
+      "maxCu": 100,
+      "name": "stw_input_readonly",
+      "program": "0x62010000010000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 1,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186",
+      "maxCu": 100,
+      "name": "stxw_input_readonly",
+      "program": "0x63110000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0xee9c49f7a55300b",
+        "status": "Ok"
+      },
+      "input": "0x0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186",
+      "maxCu": 100,
+      "name": "ldxdw_input_0",
+      "program": "0x79100000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x330ee9c49f7a5530",
+        "status": "Ok"
+      },
+      "input": "0x0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186",
+      "maxCu": 100,
+      "name": "ldxdw_input_1",
+      "program": "0x79100100000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x7d58330ee9c49f7a",
+        "status": "Ok"
+      },
+      "input": "0x0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186",
+      "maxCu": 100,
+      "name": "ldxdw_input_3",
+      "program": "0x79100300000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x3611ecc7a27d5833",
+        "status": "Ok"
+      },
+      "input": "0x0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186",
+      "maxCu": 100,
+      "name": "ldxdw_input_8",
+      "program": "0x79100800000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x86613c17f2cda883",
+        "status": "Ok"
+      },
+      "input": "0x0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186",
+      "maxCu": 100,
+      "name": "ldxdw_input_24",
+      "program": "0x79101800000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 1,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186",
+      "maxCu": 100,
+      "name": "ldxdw_input_25",
+      "program": "0x79101900000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 1,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186",
+      "maxCu": 100,
+      "name": "ldxdw_input_-1",
+      "program": "0x7910ffff000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 1,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186",
+      "maxCu": 100,
+      "name": "ldxdw_input_4096",
+      "program": "0x79100010000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 4,
+        "r0": "0xf1e2d3c4b5a69788",
+        "status": "Ok"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stxdw_stack_-8",
+      "program": "0x180200008897a6b500000000c4d3e2f17b2af8ff0000000079a0f8ff000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 3,
+        "r0": "0xfffffffffffffffe",
+        "status": "Ok"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stdw_stack_-8",
+      "program": "0x7a0af8fffeffffff79a0f8ff000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stxdw_stack_-1",
+      "program": "0x180200008897a6b500000000c4d3e2f17b2affff0000000079a0ffff000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 1,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stdw_stack_-1",
+      "program": "0x7a0afffffeffffff79a0ffff000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 4,
+        "r0": "0xf1e2d3c4b5a69788",
+        "status": "Ok"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stxdw_stack_-8",
+      "program": "0x180200008897a6b500000000c4d3e2f17b2af8ff0000000079a0f8ff000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 3,
+        "r0": "0xfffffffffffffffe",
+        "status": "Ok"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stdw_stack_-8",
+      "program": "0x7a0af8fffeffffff79a0f8ff000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 4,
+        "r0": "0xf1e2d3c4b5a69788",
+        "status": "Ok"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stxdw_stack_-4096",
+      "program": "0x180200008897a6b500000000c4d3e2f17b2a00f00000000079a000f0000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 3,
+        "r0": "0xfffffffffffffffe",
+        "status": "Ok"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stdw_stack_-4096",
+      "program": "0x7a0a00f0feffffff79a000f0000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stxdw_stack_-4097",
+      "program": "0x180200008897a6b500000000c4d3e2f17b2affef0000000079a0ffef000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 1,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stdw_stack_-4097",
+      "program": "0x7a0affeffeffffff79a0ffef000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 4,
+        "r0": "0xf1e2d3c4b5a69788",
+        "status": "Ok"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stxdw_stack_-4095",
+      "program": "0x180200008897a6b500000000c4d3e2f17b2a01f00000000079a001f0000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 3,
+        "r0": "0xfffffffffffffffe",
+        "status": "Ok"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stdw_stack_-4095",
+      "program": "0x7a0a01f0feffffff79a001f0000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stxdw_stack_0",
+      "program": "0x180200008897a6b500000000c4d3e2f17b2a00000000000079a00000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 1,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stdw_stack_0",
+      "program": "0x7a0a0000feffffff79a00000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stxdw_stack_1",
+      "program": "0x180200008897a6b500000000c4d3e2f17b2a01000000000079a00100000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 1,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stdw_stack_1",
+      "program": "0x7a0a0100feffffff79a00100000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 1,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186",
+      "maxCu": 100,
+      "name": "stdw_input_readonly",
+      "program": "0x7a010000010000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 1,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186",
+      "maxCu": 100,
+      "name": "stxdw_input_readonly",
+      "program": "0x7b110000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x0",
+        "status": "Ok"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stack_zero_init",
+      "program": "0x79a0f8ff000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 4,
+        "r0": "0x88",
+        "status": "Ok"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stack_little_endian",
+      "program": "0x180200008877665500000000443322117b2af8ff0000000071a0f8ff000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 4,
+        "r0": "0x33445566",
+        "status": "Ok"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "stack_unaligned",
+      "program": "0x180200008877665500000000443322117b2af5ff0000000061a0f7ff000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "rodata_unmapped",
+      "program": "0x1802000000000000000000000100000071200000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "heap_unmapped",
+      "program": "0x1802000000000000000000000300000071200000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "null_unmapped",
+      "program": "0xb70200000000000071200000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 1,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "input_empty",
+      "program": "0x71100000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x400000000",
+        "status": "Ok"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "r1_points_to_input",
+      "program": "0xbf100000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x200001000",
+        "status": "Ok"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "r10_frame_pointer",
+      "program": "0xbfa00000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x0",
+        "status": "AccessViolation"
+      },
+      "input": "0x",
+      "maxCu": 100,
+      "name": "addr_wraparound",
+      "program": "0x18020000ffffffff00000000ffffffff71200100000000009500000000000000"
+    }
+  ]
+}

@@ -1,28 +1,21 @@
 {
   "name": "sbpf-bsc",
-  "version": "1.0.0",
-  "description": "Interpretador sBPF (Solana) em Solidity para BSC + token com mint por prova de execução",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Interpretador sBPF v0 (Solana) em Solidity para a BSC, com teste diferencial contra a VM oficial",
   "scripts": {
     "compile": "hardhat compile",
     "test": "hardhat test",
-    "test:offline": "USE_SOLCJS=1 hardhat test",
     "gas": "hardhat run scripts/gas.js",
-    "deploy": "hardhat run scripts/deploy.js",
-    "mine": "hardhat run scripts/mine.js",
-    "asm": "node scripts/asm.js"
+    "fixtures": "cd reference && cargo run --release"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "devDependencies": {
-    "@nomicfoundation/hardhat-chai-matchers": "^2.1.2",
-    "@nomicfoundation/hardhat-ethers": "^3.1.3",
+    "@nomicfoundation/hardhat-chai-matchers": "^2.0.0",
+    "@nomicfoundation/hardhat-ethers": "^3.0.0",
+    "@openzeppelin/contracts": "5.1.0",
     "chai": "^4.5.0",
-    "ethers": "^6.17.0",
-    "hardhat": "^2.22.17",
-    "solc": "^0.8.28"
-  },
-  "dependencies": {
-    "@openzeppelin/contracts": "^5.1.0"
+    "ethers": "^6.13.0",
+    "hardhat": "2.22.17",
+    "solc": "0.8.28"
   }
 }

@@ -1,0 +1,576 @@
+{
+  "fixtures": [
+    {
+      "expect": {
+        "cu": 0,
+        "r0": "0x0",
+        "status": "Invalid"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "empty_program",
+      "program": "0x"
+    },
+    {
+      "expect": {
+        "cu": 0,
+        "r0": "0x0",
+        "status": "Invalid"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "length_not_multiple",
+      "program": "0x9500000000000000000000"
+    },
+    {
+      "expect": {
+        "cu": 0,
+        "r0": "0x0",
+        "status": "Invalid"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "unknown_opcode_0x00",
+      "program": "0x00000000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 0,
+        "r0": "0x0",
+        "status": "Invalid"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "unknown_opcode_0xff",
+      "program": "0xff000000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 0,
+        "r0": "0x0",
+        "status": "Invalid"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "unknown_opcode_0x06",
+      "program": "0x06000000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 0,
+        "r0": "0x0",
+        "status": "Invalid"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "unknown_opcode_ld_abs",
+      "program": "0x20000000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 0,
+        "r0": "0x0",
+        "status": "Invalid"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "le64_alu64_class",
+      "program": "0xd7000000400000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 0,
+        "r0": "0x0",
+        "status": "Invalid"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "div64_imm_zero",
+      "program": "0x37000000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 0,
+        "r0": "0x0",
+        "status": "Invalid"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "div32_imm_zero",
+      "program": "0x34000000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 0,
+        "r0": "0x0",
+        "status": "Invalid"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "mod64_imm_zero",
+      "program": "0x97000000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 0,
+        "r0": "0x0",
+        "status": "Invalid"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "mod32_imm_zero",
+      "program": "0x94000000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 0,
+        "r0": "0x0",
+        "status": "Invalid"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "lsh64_imm_64",
+      "program": "0x67000000400000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x0",
+        "status": "Ok"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "lsh64_imm_63_ok",
+      "program": "0x670000003f0000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 0,
+        "r0": "0x0",
+        "status": "Invalid"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "rsh64_imm_neg",
+      "program": "0x77000000ffffffff9500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 0,
+        "r0": "0x0",
+        "status": "Invalid"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "arsh64_imm_64",
+      "program": "0xc7000000400000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 0,
+        "r0": "0x0",
+        "status": "Invalid"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "lsh32_imm_32",
+      "program": "0x64000000200000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 0,
+        "r0": "0x0",
+        "status": "Invalid"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "rsh32_imm_32",
+      "program": "0x74000000200000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 0,
+        "r0": "0x0",
+        "status": "Invalid"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "arsh32_imm_32",
+      "program": "0xc4000000200000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x0",
+        "status": "Ok"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "lsh32_imm_31_ok",
+      "program": "0x640000001f0000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 0,
+        "r0": "0x0",
+        "status": "Invalid"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "be_imm_8",
+      "program": "0xdc000000080000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 0,
+        "r0": "0x0",
+        "status": "Invalid"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "le_imm_0",
+      "program": "0xd4000000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 0,
+        "r0": "0x0",
+        "status": "Invalid"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "lddw_last",
+      "program": "0x95000000000000001800000001000000"
+    },
+    {
+      "expect": {
+        "cu": 0,
+        "r0": "0x0",
+        "status": "Invalid"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "lddw_incomplete",
+      "program": "0x180000000100000095000000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x200000001",
+        "status": "Ok"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "lddw_second_slot_garbage_ok",
+      "program": "0x180000000100000000976300020000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 0,
+        "r0": "0x0",
+        "status": "Invalid"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "jump_out_forward",
+      "program": "0x05000100000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 0,
+        "r0": "0x0",
+        "status": "Invalid"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "jump_out_backward",
+      "program": "0x0500feff000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 100,
+        "r0": "0x0",
+        "status": "CuExceeded"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "jump_to_self_ok",
+      "program": "0x0500ffff000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 0,
+        "r0": "0x0",
+        "status": "Invalid"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "jump_into_lddw",
+      "program": "0x1500010000000000180000000500000000000000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x0",
+        "status": "Ok"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "jump_over_lddw_ok",
+      "program": "0x1500020000000000180000000500000000000000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 0,
+        "r0": "0x0",
+        "status": "Invalid"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "write_r10_mov",
+      "program": "0xb70a0000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 0,
+        "r0": "0x0",
+        "status": "Invalid"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "write_r10_add",
+      "program": "0x070a0000080000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 0,
+        "r0": "0x0",
+        "status": "Invalid"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "write_r10_ldx",
+      "program": "0x79aaf8ff000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 0,
+        "r0": "0x0",
+        "status": "Invalid"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "write_r10_lddw",
+      "program": "0x180a00000100000000000000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x0",
+        "status": "Ok"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "store_via_r10_ok",
+      "program": "0x7a0af8ff010000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 0,
+        "r0": "0x0",
+        "status": "Invalid"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "jump_dst_r10",
+      "program": "0x150a0000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 0,
+        "r0": "0x0",
+        "status": "Invalid"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "exit_dst_r10",
+      "program": "0x950a000000000000"
+    },
+    {
+      "expect": {
+        "cu": 0,
+        "r0": "0x0",
+        "status": "Invalid"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "dst_r11",
+      "program": "0xb70b0000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 0,
+        "r0": "0x0",
+        "status": "Invalid"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "src_r11",
+      "program": "0xbfb00000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 0,
+        "r0": "0x0",
+        "status": "Invalid"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "src_r11_imm_form",
+      "program": "0xb7b00000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x200001000",
+        "status": "Ok"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "src_r10_read_ok",
+      "program": "0xbfa00000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 0,
+        "r0": "0x0",
+        "status": "Invalid"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "dst_r15",
+      "program": "0xb70f0000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 1,
+        "r0": "0x0",
+        "status": "Invalid"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "call_imm_unsupported",
+      "program": "0x85000000bd5975209500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 1,
+        "r0": "0x0",
+        "status": "Invalid"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "callx_unsupported",
+      "program": "0x8d000000020000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 0,
+        "r0": "0x0",
+        "status": "Invalid"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "callx_bad_register",
+      "program": "0x8d0000000a0000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x0",
+        "status": "Invalid"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "no_exit_overrun",
+      "program": "0xb700000001000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x7",
+        "status": "Ok"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "exit_not_reached_ok",
+      "program": "0xb7000000070000009500000000000000b700000001000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x0",
+        "status": "DivideByZero"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "div64_reg_zero",
+      "program": "0xb7020000000000003f200000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 2,
+        "r0": "0x0",
+        "status": "DivideByZero"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "mod32_reg_zero_low_bits",
+      "program": "0x180200000000000000000000010000009c200000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 3,
+        "r0": "0x0",
+        "status": "Ok"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "div64_reg_high_bits_ok",
+      "program": "0x180200000000000000000000010000003f200000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 0,
+        "r0": "0x0",
+        "status": "Invalid"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "neg64_reg_form",
+      "program": "0x8f000000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 0,
+        "r0": "0x0",
+        "status": "Invalid"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "ja_reg_form",
+      "program": "0x0d000000000000009500000000000000"
+    },
+    {
+      "expect": {
+        "cu": 0,
+        "r0": "0x0",
+        "status": "Invalid"
+      },
+      "input": "0x0102030405060708",
+      "maxCu": 100,
+      "name": "exit_reg_form",
+      "program": "0x9d00000000000000"
+    }
+  ]
+}

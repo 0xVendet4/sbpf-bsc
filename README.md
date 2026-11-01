@@ -59,6 +59,32 @@ os mesmos bytes e os mesmos erros (2060/2060). Para servir localmente:
 `cd web && python3 -m http.server 8000`. O salt do commit fica no `localStorage` do navegador, com
 um backup copiável na página.
 
+## Prova de fraude de um passo (`SbpfVM.step` + `SbpfDispute`)
+
+Rodar um programa Solana inteiro na BSC custa ~530 gas por instrução, o que inviabiliza programas
+reais (50 mil a 200 mil CU viram 26 a 106 milhões de gas). A saída é a fase 3 da spec: executar
+fora da cadeia e **provar na cadeia só a instrução em disputa**.
+
+- `SbpfVM.State` = (pc, cu, halted, status, r0..r10, keccak da pilha de 4 KiB). O compromisso é
+  `stateHash(State)`; o estado inicial é fixo (`initialState()`).
+- `SbpfVM.step(State, pilha, program, input, maxCu)` executa exatamente uma instrução. O mesmo loop
+  Yul de `execute` roda com orçamento de 1, então não há duas semânticas: `contracts/test/Step.test.js`
+  aplica `step` até parar em todos os 1.769 fixtures que passam no verificador (54 mil instruções)
+  e exige o mesmo (status, r0, cu) de `execute`. Um passo custa **~51k gas** (a pilha inteira vai
+  em calldata; sem Merkle, de propósito: 4 KiB é barato na BSC e elimina uma classe de bugs).
+  `trace(..., orçamento)` devolve também a pilha, para o provador gerar os estados intermediários.
+- `SbpfDispute`: alguém afirma "`execute(program, input, maxCu)` para após N instruções em
+  `endHash`" com caução; qualquer um contesta com a mesma caução; bisseção (quem afirmou posta o
+  hash do meio, quem contestou escolhe o lado) até sobrar uma instrução; `prove` roda esse passo no
+  SbpfVM e decide (**~106k gas**). Quem não joga no prazo perde; o vencedor leva as duas cauções.
+  Afirmações não contestadas viram `Confirmed` e `result(id)` fica disponível para outros
+  contratos. Testes em `contracts/test/Dispute.test.js`: afirmação honesta, falsa no fim, falsa no
+  meio, número de instruções errado, abandono de cada lado, provas com programa/input trocados.
+  Para isqrt(u64::MAX), 327 instruções, a disputa inteira leva 9 rodadas de bisseção.
+
+O que isto ainda não é: o programa continua sem syscalls e sem contas (próxima fase), e o input
+entra inteiro no passo final (para inputs grandes, trocar por Merkle).
+
 ## Números reais
 
 | | |
@@ -208,7 +234,7 @@ cd ..
 
 # 2. Contratos e testes (Node 22)
 npm install                                # .npmrc liga legacy-peer-deps (conflito de peer do hardhat-chai-matchers)
-npm test                                   # 20 testes: diferencial (5 conjuntos), golf, bounty, seed EIP-2935, assembler JS
+npm test                                   # 36 testes: diferencial, passo único, disputa, golf, bounty, seed, assembler JS
 npm run gas                                # tabela de gás
 
 # Sem acesso a binaries.soliditylang.org? Use o solc-js do npm (mesma versão 0.8.28):

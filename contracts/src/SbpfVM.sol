@@ -30,6 +30,11 @@ contract SbpfVM {
     uint64 public constant STACK_SIZE = 4096;
     uint64 public constant INPUT_START = 0x400000000;
 
+    uint256 private constant VM_BYTES = 4512; // 352 (regs) + 4096 (pilha) + ip + cu
+    uint256 private constant IP_OFF = 4448;
+    uint256 private constant CU_OFF = 4480;
+    uint256 private constant RUNNING = 0x100; // _exec: não parou dentro do orçamento
+
     /// @notice Verifica e executa um programa. Nunca reverte por erro do programa: devolve o status.
     /// @param program bytecode sBPF (múltiplo de 8 bytes)
     /// @param input   bytes mapeados em INPUT_START (r1 aponta para eles)
@@ -164,30 +169,130 @@ contract SbpfVM {
     {
         uint256 codeOff;
         uint256 inPacked;
-        assembly {
+        uint256 vm;
+        assembly ("memory-safe") {
             codeOff := program.offset
             inPacked := or(shl(128, input.offset), input.length)
+            vm := mload(0x40)
+            mstore(0x40, add(vm, VM_BYTES))
+            for { let p := vm } lt(p, add(vm, VM_BYTES)) { p := add(p, 32) } { mstore(p, 0) }
+            mstore(add(vm, 32), INPUT_START) // r1 = input
+            mstore(add(vm, 320), add(STACK_START, STACK_SIZE)) // r10 = topo da pilha
         }
-        (uint256 st, uint256 ret, uint256 cu) = _exec(codeOff, program.length / 8, inPacked, maxCu);
+        uint256 st = _exec(vm, codeOff, program.length / 8, inPacked, maxCu, type(uint256).max);
+        uint256 ret;
+        uint256 cu;
+        assembly ("memory-safe") {
+            ret := mload(vm)
+            cu := mload(add(vm, CU_OFF))
+        }
         status = Status(st);
-        r0 = uint64(ret);
+        r0 = st == 0 ? uint64(ret) : 0;
         cuUsed = uint64(cu);
     }
 
-    /// @dev Loop principal em Yul. Poucas variáveis locais de propósito (limite da pilha da EVM).
-    ///      `inPacked` = (offset do input em calldata) << 128 | (tamanho do input).
-    function _exec(uint256 codeOff, uint256 n, uint256 inPacked, uint256 maxCu)
+    // ------------------------------------------------------------------ passo único (prova de fraude)
+
+    /// @notice Estado da VM entre duas instruções. `keccak256(abi.encode(State))` é o compromisso
+    ///         usado na bisseção; `stackHash` = keccak256 dos 4096 bytes da pilha.
+    struct State {
+        uint64 pc;
+        uint64 cu;
+        bool halted;
+        Status status; // válido quando halted
+        uint64[11] regs;
+        bytes32 stackHash;
+    }
+
+
+    error StateHalted();
+    error BadStack();
+
+    /// @notice Estado inicial de `execute(program, input, maxCu)` (não depende de program/input).
+    function initialState() public pure returns (State memory s) {
+        s.regs[1] = INPUT_START;
+        s.regs[10] = STACK_START + STACK_SIZE;
+        s.stackHash = keccak256(new bytes(STACK_SIZE));
+    }
+
+    function stateHash(State memory s) public pure returns (bytes32) {
+        return keccak256(abi.encode(s));
+    }
+
+    /// @notice Executa exatamente uma instrução a partir de `s`. Equivalência: para todo programa
+    ///         verificado, aplicar `step` até `halted` dá o mesmo (status, r0, cu) que `execute`
+    ///         (contracts/test/Step.test.js).
+    /// @param s       estado anterior (não pode estar parado)
+    /// @param stack   os 4096 bytes da pilha em `s` (conferidos contra `s.stackHash`)
+    /// @param program bytecode já verificado (quem chama confere o hash)
+    /// @param input   input (quem chama confere o hash)
+    function step(State calldata s, bytes calldata stack, bytes calldata program, bytes calldata input, uint64 maxCu)
+        external
+        pure
+        returns (State memory t)
+    {
+        (t,) = _steps(s, stack, program, input, maxCu, 1);
+    }
+
+    /// @notice Executa até `budget` instruções a partir de `s` e devolve também a pilha resultante.
+    ///         Para uso fora da cadeia (gerar os estados intermediários da bisseção).
+    function trace(State calldata s, bytes calldata stack, bytes calldata program, bytes calldata input, uint64 maxCu, uint256 budget)
+        external
+        pure
+        returns (State memory t, bytes memory stackOut)
+    {
+        uint256 vm;
+        (t, vm) = _steps(s, stack, program, input, maxCu, budget);
+        stackOut = new bytes(STACK_SIZE);
+        assembly ("memory-safe") {
+            mcopy(add(stackOut, 32), add(vm, 352), 4096)
+        }
+    }
+
+    function _steps(State calldata s, bytes calldata stack, bytes calldata program, bytes calldata input, uint64 maxCu, uint256 budget)
         private
         pure
-        returns (uint256 st, uint256 ret, uint256 cu)
+        returns (State memory t, uint256 vm)
+    {
+        if (s.halted) revert StateHalted();
+        if (stack.length != STACK_SIZE || keccak256(stack) != s.stackHash) revert BadStack();
+        uint256 codeOff;
+        uint256 inPacked;
+        assembly ("memory-safe") {
+            codeOff := program.offset
+            inPacked := or(shl(128, input.offset), input.length)
+            vm := mload(0x40)
+            mstore(0x40, add(vm, VM_BYTES))
+            calldatacopy(vm, add(s, 128), 352) // regs (uint64[11] fixo: 5º slot do struct)
+            calldatacopy(add(vm, 352), stack.offset, 4096)
+            mstore(add(vm, IP_OFF), calldataload(s)) // pc
+            mstore(add(vm, CU_OFF), calldataload(add(s, 32))) // cu
+        }
+        uint256 st = _exec(vm, codeOff, program.length / 8, inPacked, maxCu, budget);
+        t.halted = st != RUNNING;
+        t.status = t.halted ? Status(st) : Status.Ok;
+        assembly ("memory-safe") {
+            mstore(t, mload(add(vm, IP_OFF)))
+            mstore(add(t, 32), mload(add(vm, CU_OFF)))
+            let regs := mload(add(t, 128))
+            for { let i := 0 } lt(i, 11) { i := add(i, 1) } {
+                mstore(add(regs, mul(i, 32)), mload(add(vm, mul(i, 32))))
+            }
+            mstore(add(t, 160), keccak256(add(vm, 352), 4096))
+        }
+    }
+
+    /// @dev Loop principal em Yul. Poucas variáveis locais de propósito (limite da pilha da EVM).
+    ///      `vm` aponta para 11 palavras de registradores, 4096 bytes de pilha, ip e cu.
+    ///      `inPacked` = (offset do input em calldata) << 128 | (tamanho do input).
+    ///      Executa até parar ou até `budget` instruções; devolve o Status, ou RUNNING se não parou.
+    function _exec(uint256 vm, uint256 codeOff, uint256 n, uint256 inPacked, uint256 maxCu, uint256 budget)
+        private
+        pure
+        returns (uint256 st)
     {
         assembly ("memory-safe") {
-            // --- memória da VM: 11 palavras de registradores seguidas de 4096 bytes de pilha
-            let regs := mload(0x40)
-            mstore(0x40, add(regs, 4448))
-            for { let p := regs } lt(p, add(regs, 4448)) { p := add(p, 32) } { mstore(p, 0) }
-            mstore(add(regs, 32), 0x400000000) // r1 = input
-            mstore(add(regs, 320), 0x200001000) // r10 = topo da pilha (STACK_START + STACK_SIZE)
+            let regs := vm
 
             // lê `size` bytes little-endian a partir dos bytes mais altos da palavra w
             function le(w, size) -> v {
@@ -241,8 +346,13 @@ contract SbpfVM {
                 case 0x18 { size := 8 }
             }
 
-            let ip := 0
+            let ip := mload(add(vm, 4448))
+            let cu := mload(add(vm, 4480))
+            st := 0x100 // RUNNING
             for {} 1 {} {
+                if iszero(budget) { break }
+                budget := sub(budget, 1)
+                st := 0 // qualquer `break` abaixo é uma parada; o fim do corpo volta a RUNNING
                 // medidor de instruções: igual à referência, checa antes de executar
                 if iszero(lt(cu, maxCu)) {
                     st := 4
@@ -347,10 +457,7 @@ contract SbpfVM {
                     // ---------------- JMP / exit / call
                     switch opc
                     case 0x05 { ip := add(ip, offset(w)) }
-                    case 0x95 {
-                        ret := mload(regs)
-                        break
-                    }
+                    case 0x95 { break }
                     default {
                         if eq(and(opc, 0xf0), 0x80) {
                             // call / callx: fora do subconjunto (sem syscalls, sem frames)
@@ -414,8 +521,10 @@ contract SbpfVM {
                     mstore(dstp, or(imm, shl(32, or(or(byte(4, w), shl(8, byte(5, w))), or(shl(16, byte(6, w)), shl(24, byte(7, w)))))))
                     ip := add(ip, 1)
                 }
+                st := 0x100
             }
-            if st { ret := 0 }
+            mstore(add(vm, 4448), ip)
+            mstore(add(vm, 4480), cu)
         }
     }
 }

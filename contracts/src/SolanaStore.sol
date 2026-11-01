@@ -33,6 +33,8 @@ contract SolanaStore {
     bytes32 public constant BPF_LOADER_2 = 0x02a8f6914e88a16e395ae128948ffa695693376818dd47435221f3c600000000;
     /// @notice NativeLoader1111111111111111111111111111111 (owner dos programas builtin)
     bytes32 public constant NATIVE_LOADER = 0x058784bf148ba4282fb012574888a9f153a07dadf765c0455c9a970380000000;
+    /// @notice TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA (SPL Token)
+    bytes32 public constant TOKEN_PROGRAM = 0x06ddf6e1d765a193d9cbe146ceeb79ac1cb485ed5f5b37913a8cf5857eff00a9;
     bytes32 private constant SV_CLOCK = 0x06a7d51718c774c928566398691d5eb68b5eb8a39b4b6d5c73555b2100000000;
     bytes32 private constant SV_RENT = 0x06a7d517192c5c51218cc94c3d4af17f58daee089ba1fd44e3dbd98a00000000;
     uint64 public constant DEFAULT_COMPUTE_UNIT_LIMIT = 200_000;
@@ -62,9 +64,13 @@ contract SolanaStore {
     mapping(bytes32 => address) public uploader; // publicação em várias transações ainda aberta
     mapping(bytes32 => address[]) private image_; // programas v0: imagem pronta (SSTORE2), opcional
     mapping(bytes32 => bool) public imageReady; // imagem conferida contra SolanaImage.build
+    /// @notice Contratos (a cara BEP-20 de um mint SPL) que podem assinar Transfer do SPL Token por um
+    ///         usuário, só de contas daquele mint: forwarderMint[contrato] = mint.
+    mapping(address => bytes32) public forwarderMint;
 
     event ProgramDeployed(bytes32 indexed programId, address indexed deployer, uint256 size);
     event ImageCached(bytes32 indexed programId, uint256 size);
+    event ForwarderSet(address indexed forwarder, bytes32 indexed mint);
     event Invoked(bytes32 indexed programId, address indexed caller, uint64 cu, bytes returnData, string logs);
     event Deposited(bytes32 indexed key, address indexed from, uint64 lamports);
     event Withdrawn(bytes32 indexed key, address indexed to, uint64 lamports);
@@ -86,6 +92,7 @@ contract SolanaStore {
 
     error UploadNotOpen(bytes32 programId);
     error ChunkTooBig();
+    error NotForwarder();
 
     constructor(SolanaRuntime runtime_, SolanaLoader loader_) {
         runtime = runtime_;
@@ -339,13 +346,40 @@ contract SolanaStore {
     ///         Solana falhada não muda nada.
     function invoke(bytes32 programId, AccountMeta[] calldata metas, bytes calldata data, uint64 computeUnitLimit)
         external
+        returns (SolanaRuntime.Outcome memory)
+    {
+        return _invoke(programId, metas, data, computeUnitLimit, msg.sender);
+    }
+
+    /// @notice A gênese autoriza um contrato a assinar Transfer do SPL Token pelos usuários, só para
+    ///         contas do `mint` (mint = 0 revoga). Na mainnet isto vira governança ou fábrica.
+    function setForwarder(address forwarder, bytes32 mint) external {
+        if (msg.sender != genesis) revert NotForwarder();
+        forwarderMint[forwarder] = mint;
+        emit ForwarderSet(forwarder, mint);
+    }
+
+    /// @notice Transfer (instrução 3) do SPL Token assinado por `signer`, chamado por um encaminhador
+    ///         autorizado (a cara BEP-20 confere msg.sender ou o allowance antes). A conta de origem
+    ///         tem de ser do mint do encaminhador.
+    function invokeAs(address signer, AccountMeta[] calldata metas, bytes calldata data) external returns (SolanaRuntime.Outcome memory) {
+        bytes32 mint = forwarderMint[msg.sender];
+        if (mint == 0 || data.length != 9 || data[0] != 0x03 || metas.length == 0) revert NotForwarder();
+        Stored storage src = accounts_[metas[0].key];
+        bytes memory d = src.data;
+        if (src.owner != TOKEN_PROGRAM || d.length < 32 || bytes32(d) != mint) revert NotForwarder();
+        return _invoke(TOKEN_PROGRAM, metas, data, 0, signer);
+    }
+
+    function _invoke(bytes32 programId, AccountMeta[] calldata metas, bytes calldata data, uint64 computeUnitLimit, address signer)
+        private
         returns (SolanaRuntime.Outcome memory o)
     {
-        (bytes memory elf_, SolanaRuntime.Call memory c, bytes32[] memory keys) = _prepare(programId, metas, data, computeUnitLimit, msg.sender);
+        (bytes memory elf_, SolanaRuntime.Call memory c, bytes32[] memory keys) = _prepare(programId, metas, data, computeUnitLimit, signer);
         o = runtime.invokeWith(elf_, c, _programs(c));
         if (o.err != 0) revert ProgramFailed(o.err, o.custom, o.logs);
         for (uint256 i = 0; i < keys.length; i++) if (!c.accounts[i].executable) _save(keys[i], c.accounts[i], o.accounts[i]);
-        emit Invoked(programId, msg.sender, o.cu, o.returnData, o.logs);
+        emit Invoked(programId, signer, o.cu, o.returnData, o.logs);
     }
 
     /// @notice Simula uma instrução (sem gravar nada): devolve erro, CU, log, return data e contas finais.

@@ -1,32 +1,10 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
-const { SV_CLOCK, loadJson, deploySolanaRuntime } = require("./solanaHelpers");
+const { SV_CLOCK, loadJson, deploySolanaRuntime, errorName } = require("./solanaHelpers");
 
 // SolanaRuntime.sol recebe a instrução como o agave recebe (programa, contas, metas, dados, sysvars),
 // serializa as contas ele mesmo (ABIv1 com direct mapping), roda o SolanaVM e aplica as regras do
 // loader. O teste compara erro, CU, return data, log e contas finais com o Mollusk (agave 4.3).
-
-const IE = [
-  "GenericError", "InvalidArgument", "InvalidInstructionData", "InvalidAccountData", "AccountDataTooSmall", "InsufficientFunds",
-  "IncorrectProgramId", "MissingRequiredSignature", "AccountAlreadyInitialized", "UninitializedAccount", "UnbalancedInstruction",
-  "ModifiedProgramId", "ExternalAccountLamportSpend", "ExternalAccountDataModified", "ReadonlyLamportChange", "ReadonlyDataModified",
-  "DuplicateAccountIndex", "ExecutableModified", "RentEpochModified", "NotEnoughAccountKeys", "AccountDataSizeChanged",
-  "AccountNotExecutable", "AccountBorrowFailed", "AccountBorrowOutstanding", "DuplicateAccountOutOfSync", "Custom", "InvalidError",
-  "ExecutableDataModified", "ExecutableLamportChange", "ExecutableAccountNotRentExempt", "UnsupportedProgramId", "CallDepth",
-  "MissingAccount", "ReentrancyNotAllowed", "MaxSeedLengthExceeded", "InvalidSeeds", "InvalidRealloc", "ComputationalBudgetExceeded",
-  "PrivilegeEscalation", "ProgramEnvironmentSetupFailure", "ProgramFailedToComplete", "ProgramFailedToCompile", "Immutable",
-  "IncorrectAuthority", "BorshIoError", "AccountNotRentExempt", "InvalidAccountOwner", "ArithmeticOverflow", "UnsupportedSysvar",
-  "IllegalOwner", "MaxAccountsDataAllocationsExceeded", "MaxAccountsExceeded", "MaxInstructionTraceLengthExceeded",
-  "BuiltinProgramsMustConsumeComputeUnits", "BailOut",
-];
-
-/// Nome do erro como no fixture (null = sucesso, "Custom(n)" leva o código).
-function errorName(o) {
-  const e = Number(o.err);
-  if (e === 0) return null;
-  const name = IE[e - 1];
-  return name === "Custom" ? `Custom(${o.custom})` : name;
-}
 
 /// Monta a chamada a partir do fixture: as metas referenciam as contas pelo índice.
 function callOf(f) {

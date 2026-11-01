@@ -96,5 +96,30 @@ function formatLogs(entries) {
   }).filter((x) => x !== null);
 }
 
+// InstructionError do agave, na ordem do enum (o runtime devolve índice + 1; 0 = sucesso)
+const IE = [
+  "GenericError", "InvalidArgument", "InvalidInstructionData", "InvalidAccountData", "AccountDataTooSmall", "InsufficientFunds",
+  "IncorrectProgramId", "MissingRequiredSignature", "AccountAlreadyInitialized", "UninitializedAccount", "UnbalancedInstruction",
+  "ModifiedProgramId", "ExternalAccountLamportSpend", "ExternalAccountDataModified", "ReadonlyLamportChange", "ReadonlyDataModified",
+  "DuplicateAccountIndex", "ExecutableModified", "RentEpochModified", "NotEnoughAccountKeys", "AccountDataSizeChanged",
+  "AccountNotExecutable", "AccountBorrowFailed", "AccountBorrowOutstanding", "DuplicateAccountOutOfSync", "Custom", "InvalidError",
+  "ExecutableDataModified", "ExecutableLamportChange", "ExecutableAccountNotRentExempt", "UnsupportedProgramId", "CallDepth",
+  "MissingAccount", "ReentrancyNotAllowed", "MaxSeedLengthExceeded", "InvalidSeeds", "InvalidRealloc", "ComputationalBudgetExceeded",
+  "PrivilegeEscalation", "ProgramEnvironmentSetupFailure", "ProgramFailedToComplete", "ProgramFailedToCompile", "Immutable",
+  "IncorrectAuthority", "BorshIoError", "AccountNotRentExempt", "InvalidAccountOwner", "ArithmeticOverflow", "UnsupportedSysvar",
+  "IllegalOwner", "MaxAccountsDataAllocationsExceeded", "MaxAccountsExceeded", "MaxInstructionTraceLengthExceeded",
+  "BuiltinProgramsMustConsumeComputeUnits", "BailOut",
+];
+
+/// Nome do erro como no fixture (null = sucesso, "Custom(n)" leva o código).
+function errorName(o) {
+  const e = Number(o.err);
+  if (e === 0) return null;
+  const name = IE[e - 1];
+  return name === "Custom" ? `Custom(${o.custom})` : name;
+}
+
 module.exports = {
+  IE,
+  errorName,
   deploySolanaRuntime, STATUS, SYSCALL_ERR, INPUT_START, SV_CLOCK, loadJson, deploySolanaVM, statusName, parseLogs, formatLogs, base58 };

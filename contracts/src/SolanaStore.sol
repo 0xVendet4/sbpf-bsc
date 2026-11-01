@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import {SolanaVM} from "./SolanaVM.sol";
 import {SolanaRuntime} from "./SolanaRuntime.sol";
+import {SolanaLoader, SolanaImage} from "./SolanaLoader.sol";
 
 /// @title SolanaStore — programas e contas Solana vivendo dentro da BSC
 /// @notice O "ledger" Solana on-chain: guarda programas (ELF .so, em código de contrato) e contas
@@ -20,10 +21,16 @@ import {SolanaRuntime} from "./SolanaRuntime.sol";
 contract SolanaStore {
     SolanaRuntime public immutable runtime;
     SolanaVM public immutable vm;
+    SolanaLoader public immutable loader;
+    /// @notice Pode publicar programas em ids que não são chaves suas (como os programas da gênese de
+    ///         um validador: SPL Token em Tokenkeg...). Só em ids ainda sem conta.
+    address public immutable genesis;
 
     bytes32 public constant SYSTEM_PROGRAM = bytes32(0);
     /// @notice BPFLoaderUpgradeab1e11111111111111111111111 (owner das contas de programa)
     bytes32 public constant BPF_LOADER = 0x02a8f6914e88a1b0e210153ef763ae2b00c2b93d16c124d2c0537a1004800000;
+    /// @notice BPFLoader2111111111111111111111111111111111 (owner dos programas sBPF v0, como o SPL Token)
+    bytes32 public constant BPF_LOADER_2 = 0x02a8f6914e88a1b0e210153ef763ae2b00c2b93d16c124d2c0537a1004000000;
     /// @notice NativeLoader1111111111111111111111111111111 (owner dos programas builtin)
     bytes32 public constant NATIVE_LOADER = 0x058784bf148ba4282fb012574888a9f153a07dadf765c0455c9a970380000000;
     bytes32 private constant SV_CLOCK = 0x06a7d51718c774c928566398691d5eb68b5eb8a39b4b6d5c73555b2100000000;
@@ -51,6 +58,8 @@ contract SolanaStore {
     mapping(bytes32 => Stored) private accounts_;
     mapping(bytes32 => address[]) private chunks_; // ELF guardado como código de contratos (SSTORE2)
     mapping(bytes32 => uint256) public elfLength;
+    mapping(bytes32 => address) private layout_; // programas v0: layout do SolanaLoader (SSTORE2)
+    mapping(bytes32 => address) public uploader; // publicação em várias transações ainda aberta
 
     event ProgramDeployed(bytes32 indexed programId, address indexed deployer, uint256 size);
     event Invoked(bytes32 indexed programId, address indexed caller, uint64 cu, bytes returnData, string logs);
@@ -72,9 +81,14 @@ contract SolanaStore {
     error ComputeLimitTooHigh();
     error TransferFailed();
 
-    constructor(SolanaRuntime runtime_) {
+    error UploadNotOpen(bytes32 programId);
+    error ChunkTooBig();
+
+    constructor(SolanaRuntime runtime_, SolanaLoader loader_) {
         runtime = runtime_;
         vm = runtime_.vm();
+        loader = loader_;
+        genesis = msg.sender;
     }
 
     // ------------------------------------------------------------------ leitura
@@ -111,25 +125,80 @@ contract SolanaStore {
 
     // ------------------------------------------------------------------ programas
 
-    /// @notice Publica um programa (ELF sBPF v3) numa chave assinada pelo remetente.
+    /// @notice Publica um programa (ELF sBPF v3 ou v0) numa chave assinada pelo remetente, numa transação.
     function deployProgram(bytes32 programId, bytes calldata elf_) external {
-        if (!signs(programId, msg.sender)) revert NotSigner(programId);
-        if (chunks_[programId].length != 0) revert AlreadyDeployed(programId);
-        if (!vm.verifyElf(elf_)) revert InvalidElf(); // carregador + verificador, uma vez só (como no Solana)
-        Stored storage s = accounts_[programId];
-        if (s.lamports != 0 || s.data.length != 0 || s.owner != SYSTEM_PROGRAM) revert AccountInUse(programId);
+        _open(programId);
         for (uint256 off = 0; off < elf_.length; off += CHUNK) {
             uint256 n = elf_.length - off < CHUNK ? elf_.length - off : CHUNK;
             chunks_[programId].push(_store(elf_[off:off + n]));
         }
         elfLength[programId] = elf_.length;
-        s.owner = BPF_LOADER;
+        _finalize(programId);
+    }
+
+    /// @notice Programa grande (o limite de gás por transação da BSC é 16,7M): manda o ELF em pedaços
+    ///         de até 24.575 bytes, na ordem, e depois chama `finalizeProgram`.
+    function writeProgram(bytes32 programId, bytes calldata chunk) external {
+        if (uploader[programId] == address(0)) _open(programId);
+        else if (uploader[programId] != msg.sender) revert UploadNotOpen(programId);
+        if (chunk.length == 0 || chunk.length > CHUNK) revert ChunkTooBig();
+        chunks_[programId].push(_store(chunk));
+        elfLength[programId] += chunk.length;
+    }
+
+    /// @notice Carrega, verifica e ativa um programa enviado com `writeProgram` (como o loader do
+    ///         Solana faz uma vez, ao publicar). ELF v0: as relocações do SolanaLoader ficam guardadas.
+    function finalizeProgram(bytes32 programId) external {
+        if (uploader[programId] != msg.sender) revert UploadNotOpen(programId);
+        _finalize(programId);
+    }
+
+    /// @dev Quem pode publicar em `programId`: o dono da chave ou a gênese; a conta tem de estar livre.
+    function _open(bytes32 programId) private {
+        if (!signs(programId, msg.sender) && msg.sender != genesis) revert NotSigner(programId);
+        if (chunks_[programId].length != 0) revert AlreadyDeployed(programId);
+        Stored storage s = accounts_[programId];
+        if (s.lamports != 0 || s.data.length != 0 || s.owner != SYSTEM_PROGRAM) revert AccountInUse(programId);
+        uploader[programId] = msg.sender;
+    }
+
+    function _finalize(bytes32 programId) private {
+        bytes memory e = elf(programId);
+        bytes32 owner = BPF_LOADER;
+        if (e.length >= 64 && bytes4(e) == 0x7f454c46 && e[48] == 0 && e[49] == 0 && e[50] == 0 && e[51] == 0) {
+            // sBPF v0 (e_flags = 0): relocações aplicadas pelo SolanaLoader, imagem verificada
+            bytes memory layout = loader.load(e);
+            if (!vm.verifyElf(SolanaImage.build(e, layout))) revert InvalidElf();
+            layout_[programId] = _storeMem(layout);
+            owner = BPF_LOADER_2;
+        } else if (!vm.verifyElf(e)) {
+            revert InvalidElf(); // carregador + verificador, uma vez só (como no Solana)
+        }
+        Stored storage s = accounts_[programId];
+        s.owner = owner;
         s.executable = true;
-        emit ProgramDeployed(programId, msg.sender, elf_.length);
+        delete uploader[programId];
+        emit ProgramDeployed(programId, msg.sender, e.length);
+    }
+
+    /// @notice O que a SolanaVM executa: o ELF (v3) ou a imagem relocada (v0).
+    function program(bytes32 programId) public view returns (bytes memory) {
+        bytes memory e = elf(programId);
+        address l = layout_[programId];
+        if (l == address(0)) return e;
+        bytes memory layout = new bytes(l.code.length - 1);
+        assembly ("memory-safe") {
+            extcodecopy(l, add(layout, 32), 1, mload(layout))
+        }
+        return SolanaImage.build(e, layout);
     }
 
     /// @dev SSTORE2: cria um contrato cujo código é `00 || data` e devolve o endereço.
     function _store(bytes calldata data) private returns (address c) {
+        return _storeMem(data);
+    }
+
+    function _storeMem(bytes memory data) private returns (address c) {
         bytes memory code = bytes.concat(hex"600B5981380380925939F3_00", data);
         assembly ("memory-safe") {
             c := create(0, add(code, 32), mload(code))
@@ -235,7 +304,8 @@ contract SolanaStore {
         view
         returns (bytes memory elf_, SolanaRuntime.Call memory c, bytes32[] memory keys)
     {
-        elf_ = elf(programId);
+        if (!accounts_[programId].executable) revert UnknownProgram(programId);
+        elf_ = program(programId);
         if (limit == 0) limit = DEFAULT_COMPUTE_UNIT_LIMIT;
         if (limit > MAX_COMPUTE_UNIT_LIMIT) revert ComputeLimitTooHigh();
         keys = new bytes32[](metas.length);
@@ -280,8 +350,8 @@ contract SolanaStore {
         uint64 epoch = uint64(block.number / SLOTS_PER_EPOCH);
         uint64 ts = uint64(block.timestamp);
         sv[0] = SolanaVM.Sysvar(SV_CLOCK, bytes.concat(_le(slot), _le(ts), _le(epoch), _le(epoch), _le(ts)));
-        // Rent { lamports_per_byte_year: 3480, exemption_threshold: 2.0 (f64), burn_percent: 50 } + padding
-        sv[1] = SolanaVM.Sysvar(SV_RENT, bytes.concat(_le(3480), hex"0000000000000040", bytes1(uint8(50)), bytes7(0)));
+        // Rent::default() do agave 4.3 (bincode, 17 bytes): 6960 lamports/byte, limiar 1.0 (SIMD-0194), 50% queimado
+        sv[1] = SolanaVM.Sysvar(SV_RENT, bytes.concat(_le(6960), hex"000000000000f03f", bytes1(uint8(50))));
     }
 
     function _le(uint64 v) private pure returns (bytes8 out) {

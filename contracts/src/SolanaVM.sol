@@ -97,6 +97,8 @@ contract SolanaVM {
         Suspended suspended; // só com status Cpi
     }
 
+    /// @notice Prefixo das imagens v0 montadas pelo SolanaLoader.
+    bytes4 public constant IMAGE_V0 = 0x7f534230;
     uint64 public constant RODATA_START = 0;
     uint64 public constant BYTECODE_START = 0x100000000;
     uint64 public constant STACK_START = 0x200000000;
@@ -163,6 +165,7 @@ contract SolanaVM {
     uint32 private constant H_SOL_ALT_BN128_COMPRESSION = 0x334fd5ed;
     uint32 private constant H_SOL_GET_SYSVAR = 0x13c1b505;
     uint32 private constant H_SOL_GET_EPOCH_STAKE = 0x5be92f4a;
+    uint32 private constant H_SOL_ALLOC_FREE = 0x83f00e8f; // alocador antigo (só programas v0 antigos)
     uint32 private constant H_SOL_LOG_DATA = 0x7317b434;
 
     // ids das sysvars (bytes32 = pubkey)
@@ -186,6 +189,7 @@ contract SolanaVM {
     uint256 private constant PID = 608;
     uint256 private constant MAXCU = 640;
     uint256 private constant NREG = 672;
+    uint256 private constant V0 = 704; // programa v0: tabela de funções (offset | n << 64) | endereço do texto << 128
     uint256 private constant FAULT = 736;
     uint256 private constant FRAMES = 768; // 64 frames × 64 bytes
     uint256 private constant REGTAB = 4864; // MAX_REGIONS × 5 palavras: start, len, host, flags, reserved
@@ -194,28 +198,29 @@ contract SolanaVM {
     uint256 private constant ST_RUNNING = 0x100;
     uint256 private constant ST_SYSCALL = 0x101;
     uint256 private constant MASK64 = 0xffffffffffffffff;
+    uint256 private constant M48 = 0xffffffffffff;
 
     // ------------------------------------------------------------------ API
 
-    /// @notice Executa um ELF (programa Solana compilado para sBPF v3).
+    /// @notice Executa um programa: ELF sBPF v3 ou imagem v0 montada pelo SolanaLoader.
     function runElf(bytes calldata elf, Region[] calldata input, Env calldata env) external view returns (Result memory r) {
-        (bool ok, uint256 textOff, uint256 textLen, uint256 roOff, uint256 roLen, uint64 entry) = parseElf(elf);
-        if (!ok) {
-            r.status = Status.Invalid;
-            return r;
-        }
-        return _run(elf[textOff:textOff + textLen], uint256(entry) | (1 << 64), elf[roOff:roOff + roLen], input, env);
+        return _runElf(elf, input, env, true);
     }
 
-    /// @notice Como `runElf`, mas sem passar o verificador: só para ELFs já aceites por
+    /// @notice Como `runElf`, mas sem passar o verificador: só para programas já aceites por
     ///         `verifyElf` (o verificador custa ~700 gás por instrução do programa inteiro).
     function runElfVerified(bytes calldata elf, Region[] calldata input, Env calldata env) external view returns (Result memory r) {
-        (bool ok, uint256 textOff, uint256 textLen, uint256 roOff, uint256 roLen, uint64 entry) = parseElf(elf);
-        if (!ok) {
+        return _runElf(elf, input, env, false);
+    }
+
+    function _runElf(bytes calldata elf, Region[] calldata input, Env calldata env, bool check) private view returns (Result memory r) {
+        (uint256 vm, bytes calldata text, uint256 entry) = _boot(elf, input, env, check);
+        if (vm == 0) {
             r.status = Status.Invalid;
             return r;
         }
-        return _run(elf[textOff:textOff + textLen], entry, elf[roOff:roOff + roLen], input, env);
+        _start(vm, entry, env);
+        return _loop(vm, text, input, env);
     }
 
     /// @notice Retoma uma execução suspensa numa CPI (status `Cpi`), com r0 = 0 (a CPI deu certo).
@@ -225,32 +230,42 @@ contract SolanaVM {
         view
         returns (Result memory r)
     {
-        (bool ok, uint256 textOff, uint256 textLen, uint256 roOff, uint256 roLen, ) = parseElf(elf);
-        if (!ok) {
+        (uint256 vm, bytes calldata text, ) = _boot(elf, input, env, false);
+        if (vm == 0 || s.pc >= text.length / 8) {
             r.status = Status.Invalid;
             return r;
         }
-        return _resume(elf[textOff:textOff + textLen], elf[roOff:roOff + roLen], input, env, s);
-    }
-
-    function _resume(bytes calldata text, bytes calldata rodata, Region[] calldata input, Env calldata env, Suspended calldata s)
-        private
-        view
-        returns (Result memory r)
-    {
-        if (s.pc >= text.length / 8) {
-            r.status = Status.Invalid;
-            return r;
-        }
-        uint256 vm = _setup(rodata, input, env);
         _restore(vm, s);
         return _loop(vm, text, input, env);
     }
 
-    /// @notice Carrega o ELF e verifica o bytecode (o que o loader do Solana faz uma vez, ao publicar).
+    /// @dev Carrega o programa (e verifica, se `check`) e monta a memória; vm = 0 se inválido.
+    function _boot(bytes calldata elf, Region[] calldata input, Env calldata env, bool check)
+        private
+        pure
+        returns (uint256 vm, bytes calldata text, uint256 entry)
+    {
+        uint256 pk = _parsePacked(elf);
+        text = elf[pk & M48:(pk & M48) + ((pk >> 48) & M48)];
+        entry = (pk >> 192) & M48;
+        if (pk == 0 || (check && !_verify(text, _v0(elf) != 0))) return (0, text, 0);
+        uint256 ro = pk >> 96;
+        vm = _setup(elf[ro & M48:(ro & M48) + ((ro >> 48) & M48)], input, env);
+        _mode(vm, elf);
+    }
+
+    /// @dev `parseElf` empacotado: textOff | textLen << 48 | roOff << 96 | roLen << 144 | entry << 192
+    ///      | 1 << 255; 0 se o programa é inválido ou a entrada está fora do texto.
+    function _parsePacked(bytes calldata elf) private pure returns (uint256) {
+        (bool ok, uint256 textOff, uint256 textLen, uint256 roOff, uint256 roLen, uint64 entry) = parseElf(elf);
+        if (!ok || entry >= textLen / 8) return 0;
+        return (1 << 255) | textOff | (textLen << 48) | (roOff << 96) | (roLen << 144) | (uint256(entry) << 192);
+    }
+
+    /// @notice Carrega o programa e verifica o bytecode (o que o loader do Solana faz uma vez, ao publicar).
     function verifyElf(bytes calldata elf) external pure returns (bool) {
         (bool ok, uint256 textOff, uint256 textLen, , , uint64 entry) = parseElf(elf);
-        return ok && entry < textLen / 8 && verify(elf[textOff:textOff + textLen]);
+        return ok && entry < textLen / 8 && _verify(elf[textOff:textOff + textLen], _v0(elf) != 0);
     }
 
     /// @notice Executa bytecode sBPF v3 já extraído: `text` é verificado; `rodata` é mapeado em 0.
@@ -259,29 +274,42 @@ contract SolanaVM {
         view
         returns (Result memory r)
     {
-        return _run(text, uint256(entry) | (1 << 64), rodata, input, env);
-    }
-
-    /// @dev `entryAndCheck` = entry | (verificar ? 1 << 64 : 0).
-    function _run(bytes calldata text, uint256 entryAndCheck, bytes calldata rodata, Region[] calldata input, Env calldata env)
-        private
-        view
-        returns (Result memory r)
-    {
-        uint256 n = text.length / 8;
-        uint256 entry = entryAndCheck & MASK64; // máscara explícita: o assembly abaixo lê a variável sem limpeza
-        if (entry >= n || (entryAndCheck >> 64 != 0 && !verify(text))) {
+        if (entry >= text.length / 8 || !verify(text)) {
             r.status = Status.Invalid;
             return r;
         }
         uint256 vm = _setup(rodata, input, env);
+        _start(vm, entry, env);
+        return _loop(vm, text, input, env);
+    }
+
+    /// @dev Registradores iniciais: r1 = input, r2 = dados da instrução, r10 = topo do primeiro frame.
+    function _start(uint256 vm, uint256 entry, Env calldata env) private pure {
         assembly ("memory-safe") {
             mstore(add(vm, 32), INPUT_START) // r1
             mstore(add(vm, 64), and(calldataload(add(env, 64)), MASK64)) // r2
             mstore(add(vm, 320), add(STACK_START, FRAME_SIZE)) // r10 = topo do primeiro frame
             mstore(add(vm, PC), entry)
         }
-        return _loop(vm, text, input, env);
+    }
+
+    /// @dev Programa v0: a região só leitura fica em 0x1_0000_0000 (com o texto dentro dela) e as
+    ///      chamadas usam a tabela de funções da imagem (logo depois do cabeçalho).
+    function _mode(uint256 vm, bytes calldata elf) private pure {
+        uint256 info = _v0(elf);
+        if (info == 0) return;
+        uint256 nfunc = info >> 66;
+        uint256 textVaddr = BYTECODE_START + uint32(bytes4(elf[8:12]));
+        assembly ("memory-safe") {
+            mstore(add(vm, REGTAB), BYTECODE_START)
+            mstore(add(vm, V0), or(or(add(elf.offset, 20), shl(64, nfunc)), shl(128, textVaddr)))
+        }
+    }
+
+    /// @dev Imagem v0 do SolanaLoader: 1 << 65 | nfunc << 66 (0 para ELF v3).
+    function _v0(bytes calldata elf) private pure returns (uint256) {
+        if (elf.length < 20 || bytes4(elf[0:4]) != IMAGE_V0) return 0;
+        return (1 << 65) | (uint256(uint32(bytes4(elf[16:20]))) << 66);
     }
 
     /// @dev Repõe registos, medidor, frames, pilha, heap e return data de uma execução suspensa.
@@ -429,6 +457,7 @@ contract SolanaVM {
         pure
         returns (bool ok, uint256 textOff, uint256 textLen, uint256 roOff, uint256 roLen, uint64 entry)
     {
+        if (elf.length >= 20 && bytes4(elf[0:4]) == IMAGE_V0) return _parseImage(elf);
         if (elf.length < 64) return (false, 0, 0, 0, 0, 0);
         uint256 base;
         assembly {
@@ -464,6 +493,24 @@ contract SolanaVM {
         // entry + 7 dentro do segmento e alinhado a 8
         if (e + 7 < BYTECODE_START || e + 7 >= BYTECODE_START + textLen || e % 8 != 0) return (false, 0, 0, 0, 0, 0);
         entry = uint64((e - BYTECODE_START) / 8);
+        ok = true;
+    }
+
+    /// @dev Imagem v0 montada pelo SolanaLoader: "\x7fSB0" | entry | textAddr | textLen | nfunc
+    ///      | tabela de funções | região só leitura (com o texto em textAddr).
+    function _parseImage(bytes calldata img)
+        private
+        pure
+        returns (bool ok, uint256 textOff, uint256 textLen, uint256 roOff, uint256 roLen, uint64 entry)
+    {
+        entry = uint32(bytes4(img[4:8]));
+        uint256 textAddr = uint32(bytes4(img[8:12]));
+        textLen = uint32(bytes4(img[12:16]));
+        roOff = 20 + 8 * uint256(uint32(bytes4(img[16:20])));
+        if (roOff > img.length) return (false, 0, 0, 0, 0, 0);
+        roLen = img.length - roOff;
+        if (textAddr + textLen > roLen) return (false, 0, 0, 0, 0, 0);
+        textOff = roOff + textAddr;
         ok = true;
     }
 
@@ -510,6 +557,11 @@ contract SolanaVM {
 
     /// @notice Verificador estático, equivalente ao `RequisiteVerifier` do solana-sbpf para V3.
     function verify(bytes calldata program) public pure returns (bool) {
+        return _verify(program, false);
+    }
+
+    /// @dev V0 difere em dois pontos: não há JMP32 e o registrador do callx vem no imm.
+    function _verify(bytes calldata program, bool v0) private pure returns (bool) {
         uint256 len = program.length;
         if (len == 0 || len % 8 != 0) return false;
         uint256 n = len / 8;
@@ -560,8 +612,8 @@ contract SolanaVM {
                         if (isReg) return false; // ja = 0x05
                         if (!_jumpOk(base, n, i, off)) return false;
                     } else if (op == 0x80) {
-                        // 0x85 call (resolvido em execução), 0x8d callx (dst = registrador alvo, 0..9)
-                        if (isReg && dst > 9) return false;
+                        // 0x85 call (resolvido em execução), 0x8d callx (registrador alvo 0..9: dst; no v0, imm)
+                        if (isReg && (v0 ? (imm < 0 || imm > 9) : dst > 9)) return false;
                     } else if (op == 0x90) {
                         if (isReg) return false; // exit = 0x95
                     } else if (op > 0xd0) {
@@ -570,8 +622,8 @@ contract SolanaVM {
                         if (!_jumpOk(base, n, i, off)) return false;
                     }
                 } else if (cls == 6) {
-                    // JMP32: só os saltos condicionais (0x16..0x7e, 0xa6..0xde)
-                    if (op == 0x00 || op == 0x80 || op == 0x90 || op > 0xd0) return false;
+                    // JMP32 (só v3): só os saltos condicionais (0x16..0x7e, 0xa6..0xde)
+                    if (v0 || op == 0x00 || op == 0x80 || op == 0x90 || op > 0xd0) return false;
                     if (!_jumpOk(base, n, i, off)) return false;
                 } else if (cls == 1) {
                     if ((opc & 0xe7) != 0x61) return false; // ldx{w,h,b,dw}
@@ -805,6 +857,25 @@ contract SolanaVM {
             function offset(w) -> o {
                 o := signextend(1, or(byte(2, w), shl(8, byte(3, w))))
             }
+            // v0: pc da função com hash `key` na tabela ordenada (not(0) se não há)
+            function lookup(v0, key) -> target {
+                target := not(0)
+                let lo := 0
+                let hi := and(shr(64, v0), 0xffffffff)
+                let tab := and(v0, MASK64)
+                for {} lt(lo, hi) {} {
+                    let mid := shr(1, add(lo, hi))
+                    let ent := shr(192, calldataload(add(tab, shl(3, mid))))
+                    let k := shr(32, ent)
+                    if eq(k, key) {
+                        target := and(ent, 0xffffffff)
+                        break
+                    }
+                    switch lt(k, key)
+                    case 1 { lo := add(mid, 1) }
+                    default { hi := mid }
+                }
+            }
             function memsize(opc) -> size {
                 size := 4
                 switch and(opc, 0x18)
@@ -940,6 +1011,26 @@ contract SolanaVM {
                         ip := shr(64, s)
                     }
                     case 0x85 {
+                        if mload(add(regs, V0)) {
+                            // v0: imm é o hash de uma função (tabela ordenada) ou de uma syscall
+                            let target := lookup(mload(add(regs, V0)), imm)
+                            if eq(target, not(0)) {
+                                mstore(add(regs, SC), imm)
+                                st := ST_SYSCALL
+                                break
+                            }
+                            if iszero(push(regs, ip)) {
+                                st := 5
+                                break
+                            }
+                            if iszero(lt(target, n)) {
+                                st := 6
+                                break
+                            }
+                            ip := target
+                            st := ST_RUNNING
+                            continue
+                        }
                         switch shr(4, byte(1, w))
                         case 0 {
                             // syscall: o Solidity resolve o hash e executa
@@ -966,8 +1057,12 @@ contract SolanaVM {
                         }
                     }
                     case 0x8d {
-                        // callx: alvo absoluto em reg[dst]; o frame é empilhado antes da checagem
+                        // callx: alvo absoluto em reg[dst] (v0: reg[imm], relativo ao endereço do texto);
+                        // o frame é empilhado antes da checagem
                         let target := div(and(sub(mload(dstp), BYTECODE_START), MASK64), 8)
+                        if mload(add(regs, V0)) {
+                            target := div(and(sub(mload(add(regs, shl(5, and(imm, 0x0f)))), shr(128, mload(add(regs, V0)))), MASK64), 8)
+                        }
                         if iszero(push(regs, ip)) {
                             st := 5
                             break
@@ -1114,7 +1209,7 @@ contract SolanaVM {
                 || h == H_SOL_CURVE_MULTISCALAR_MUL || h == H_SOL_CURVE_DECOMPRESS || h == H_SOL_CURVE_PAIRING_MAP
                 || h == H_SOL_GET_PROCESSED_SIBLING_INSTRUCTION
                 || h == H_SOL_ALT_BN128_GROUP_OP || h == H_SOL_BIG_MOD_EXP || h == H_SOL_POSEIDON
-                || h == H_SOL_ALT_BN128_COMPRESSION || h == H_SOL_GET_EPOCH_STAKE
+                || h == H_SOL_ALT_BN128_COMPRESSION || h == H_SOL_GET_EPOCH_STAKE || h == H_SOL_ALLOC_FREE
         ) return (uint256(Status.SyscallError), E_UNIMPLEMENTED);
         return (uint256(Status.Invalid), 0); // hash desconhecido: UnsupportedInstruction
     }
@@ -1510,9 +1605,11 @@ contract SolanaVM {
         (bool found, uint256 idx) = _findSysvar(env, id);
         if (!found) return (uint256(Status.SyscallError), E_UNSUPPORTED_SYSVAR);
         bytes calldata data = env.sysvars[idx].data;
-        if (data.length != size) return (uint256(Status.SyscallError), E_UNSUPPORTED_SYSVAR);
+        // a serialização bincode pode ser menor que a struct (Rent: 17 de 24 bytes): o resto é padding zerado
+        if (data.length > size) return (uint256(Status.SyscallError), E_UNSUPPORTED_SYSVAR);
         assembly ("memory-safe") {
-            calldatacopy(host, data.offset, size)
+            calldatacopy(host, data.offset, data.length)
+            calldatacopy(add(host, data.length), calldatasize(), sub(size, data.length))
         }
         _setR0(vm, 0);
     }

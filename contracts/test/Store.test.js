@@ -12,11 +12,13 @@ const INCINERATOR = "0x003390728d34116079bdc911bfff00dbd44d2ecdccf79ca6e10038e10
 const le64 = (n) => ethers.toBeHex(n, 8).slice(2).match(/../g).reverse().join("");
 
 
-const { SYSTEM, keyFor, w, r, ws, findPda, vaultTransferIx, findVaultIx } = require("../../scripts/solana-client");
+const { SYSTEM, keyFor, w, r, ws, s, findPda, vaultTransferIx, findVaultIx, TOKEN_PROGRAM, MINT_LEN, TOKEN_ACCOUNT_LEN, rentExempt, token, tokenAmount, mintSupply } = require("../../scripts/solana-client");
+const tokenElf = require("../../fixtures/solana/token.json").programs.spl_token;
 
 async function deployStore() {
   const { vm, rt } = await deploySolanaRuntime();
-  const store = await (await ethers.getContractFactory("SolanaStore")).deploy(await rt.getAddress());
+  const loader = await (await ethers.getContractFactory("SolanaLoader")).deploy();
+  const store = await (await ethers.getContractFactory("SolanaStore")).deploy(await rt.getAddress(), await loader.getAddress());
   await store.waitForDeployment();
   return { vm, rt, store };
 }
@@ -209,5 +211,51 @@ describe("SolanaStore — programas e contas Solana na EVM, instruções por tra
     await expect(store.connect(bob).invoke(pdaId, bad.metas, bad.data, 0)).to.be.revertedWithCustomError(store, "ProgramFailed");
   });
 
-  after(() => console.log(`      gás: deploy do programa ${gas.deploy}, hello ${gas.hello}, escrita na conta ${gas.write}, burn ${gas.burn}, CPI ${gas.cpi}, CPI assinada por PDA ${gas.pdaCpi}`));
+  it("SPL Token (sBPF v0, 108 KB): publicado em pedaços pela gênese, mint e transferência por transação", async () => {
+    // o ELF oficial vai em pedaços de 24.575 bytes (cada transação fica bem abaixo dos 16,7M de gás
+    // por transação da BSC) e `finalizeProgram` roda o SolanaLoader + o verificador on-chain
+    const bytes = ethers.getBytes(tokenElf);
+    await expect(store.connect(alice).writeProgram(TOKEN_PROGRAM, bytes.slice(0, 100))).to.be.revertedWithCustomError(store, "NotSigner");
+    const chunkGas = [];
+    for (let off = 0; off < bytes.length; off += 24575) {
+      const rc = await (await store.connect(dev).writeProgram(TOKEN_PROGRAM, bytes.slice(off, off + 24575))).wait();
+      chunkGas.push(Number(rc.gasUsed));
+    }
+    await expect(store.connect(alice).finalizeProgram(TOKEN_PROGRAM)).to.be.revertedWithCustomError(store, "UploadNotOpen");
+    const fin = await (await store.connect(dev).finalizeProgram(TOKEN_PROGRAM)).wait();
+    gas.tokenChunks = chunkGas;
+    gas.tokenFinalize = Number(fin.gasUsed);
+    const prog = await store.account(TOKEN_PROGRAM);
+    expect(prog.executable).to.equal(true);
+    expect(prog.owner).to.equal(await store.BPF_LOADER_2());
+    expect(await store.elf(TOKEN_PROGRAM)).to.equal(tokenElf);
+    expect(gas.tokenFinalize < 16_000_000).to.equal(true);
+
+    // contas criadas pelo system program com o dono Tokenkeg (como um cliente Solana faria)
+    const payer = keyFor(alice.address, 0);
+    await store.connect(alice).deposit(payer, { value: 10_000_000n });
+    const mint = keyFor(alice.address, 30);
+    const aliceAcc = keyFor(alice.address, 31);
+    const bobAcc = keyFor(bob.address, 32);
+    await store.connect(alice).createAccount(payer, mint, rentExempt(MINT_LEN), MINT_LEN, TOKEN_PROGRAM);
+    await store.connect(alice).createAccount(payer, aliceAcc, rentExempt(TOKEN_ACCOUNT_LEN), TOKEN_ACCOUNT_LEN, TOKEN_PROGRAM);
+    await store.connect(alice).deposit(keyFor(bob.address, 0), { value: 10_000_000n });
+    await store.connect(bob).createAccount(keyFor(bob.address, 0), bobAcc, rentExempt(TOKEN_ACCOUNT_LEN), TOKEN_ACCOUNT_LEN, TOKEN_PROGRAM);
+
+    const send = async (signer, metas, data) => (await (await store.connect(signer).invoke(TOKEN_PROGRAM, metas, data, 0)).wait()).gasUsed;
+    gas.initMint = Number(await send(alice, [w(mint)], token.initializeMint2(6, payer)));
+    await send(alice, [w(aliceAcc), r(mint)], token.initializeAccount3(payer));
+    await send(bob, [w(bobAcc), r(mint)], token.initializeAccount3(keyFor(bob.address, 0)));
+    gas.mintTo = Number(await send(alice, [w(mint), w(aliceAcc), s(payer)], token.mintTo(1_000_000)));
+    gas.transfer = Number(await send(alice, [w(aliceAcc), w(bobAcc), s(payer)], token.transfer(400_000)));
+    expect(tokenAmount((await store.account(aliceAcc)).data)).to.equal(600_000n);
+    expect(tokenAmount((await store.account(bobAcc)).data)).to.equal(400_000n);
+    expect(mintSupply((await store.account(mint)).data)).to.equal(1_000_000n);
+    // o Bob não assina pela Alice; saldo insuficiente dá o erro do programa (Custom(1))
+    await expect(store.connect(bob).invoke(TOKEN_PROGRAM, [w(aliceAcc), w(bobAcc), s(payer)], token.transfer(1), 0)).to.be.revertedWithCustomError(store, "NotSigner");
+    await expect(store.connect(alice).invoke(TOKEN_PROGRAM, [w(aliceAcc), w(bobAcc), s(payer)], token.transfer(600_001), 0))
+      .to.be.revertedWithCustomError(store, "ProgramFailed").withArgs(26, 1, (logs) => logs.includes("Error: insufficient funds"));
+  });
+
+  after(() => console.log(`      gás: deploy do programa ${gas.deploy}, hello ${gas.hello}, escrita na conta ${gas.write}, burn ${gas.burn}, CPI ${gas.cpi}, CPI assinada por PDA ${gas.pdaCpi}\n      SPL Token: pedaços ${gas.tokenChunks}, finalizeProgram ${gas.tokenFinalize}, InitializeMint2 ${gas.initMint}, MintTo ${gas.mintTo}, Transfer ${gas.transfer}`));
 });

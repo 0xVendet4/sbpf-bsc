@@ -92,10 +92,19 @@ fn account_json(k: &Pubkey, a: &Account) -> Value {
 }
 
 fn run_case(dir: &Path, c: &Case) -> Value {
-    let program_id = key(0xee);
+    run_case_with(dir, c, key(0xee), bpf_loader_upgradeable::id(), false)
+}
+
+/// Bytes da sysvar Rent como o agave entrega em `sol_get_sysvar` (serialização bincode, 17 bytes).
+fn rent_bytes(r: &Rent) -> Vec<u8> {
+    #[allow(deprecated)]
+    [r.lamports_per_byte.to_le_bytes().to_vec(), r.exemption_threshold.to_vec(), vec![r.burn_percent]].concat()
+}
+
+fn run_case_with(dir: &Path, c: &Case, program_id: Pubkey, loader: Pubkey, with_rent: bool) -> Value {
     let elf = fs::read(dir.join(format!("{}.so", c.program))).unwrap_or_else(|_| panic!("faltando {}.so", c.program));
     let mut mollusk = Mollusk::default();
-    mollusk.add_program_with_loader_and_elf(&program_id, &bpf_loader_upgradeable::id(), &elf);
+    mollusk.add_program_with_loader_and_elf(&program_id, &loader, &elf);
     mollusk.config.rent_exempt_checks = false; // o SolanaStore não cobra rent (ver README)
     mollusk.sysvars.clock.slot = 123_456;
     mollusk.sysvars.clock.epoch_start_timestamp = 1_700_000_000;
@@ -122,19 +131,23 @@ fn run_case(dir: &Path, c: &Case) -> Value {
         Ok(()) => Value::Null,
         Err(e) => json!(format!("{e:?}")),
     };
+    let mut sysvars = json!({ "clock": hex(&clock_bytes) });
+    if with_rent {
+        sysvars["rent"] = json!(hex(&rent_bytes(&mollusk.sysvars.rent)));
+    }
     json!({
         "name": c.name,
         "program": c.program,
         "programId": hex(program_id.as_ref()),
         "programIdBase58": program_id.to_string(),
-        "loader": hex(bpf_loader_upgradeable::id().as_ref()),
+        "loader": hex(loader.as_ref()),
         "maxCu": mollusk.compute_budget.compute_unit_limit,
         "accounts": c.accounts.iter().map(|(k, a)| account_json(k, a)).collect::<Vec<_>>(),
         "metas": c.metas.iter().map(|m| json!({ "key": hex(m.pubkey.as_ref()), "isSigner": m.is_signer, "isWritable": m.is_writable })).collect::<Vec<_>>(),
         "data": hex(&c.data),
         "regions": regions,
         "ixDataOffset": ix_off,
-        "sysvars": { "clock": hex(&clock_bytes) },
+        "sysvars": sysvars,
         "expect": {
             "error": err,
             "cu": result.compute_units_consumed,
@@ -487,6 +500,191 @@ fn cpi_case(name: &'static str, program_id: &Pubkey, accounts: Vec<(Pubkey, Acco
     Case { name, program: "pda_program", accounts, metas, data }
 }
 
+// ------------------------------------------------------------------ SPL Token (sBPF v0)
+//
+// O programa SPL Token oficial (`token.so` do pacote mollusk-svm-programs-token, carregado pelo
+// BPF Loader 2 com o id Tokenkeg...) é sBPF v0: ELF com relocações, chamadas internas resolvidas
+// por hash e rodata em 0x1_0000_0000. Além dos casos de execução, `fixtures/solana/token.json`
+// traz o resultado do carregador do agave (`Executable::load`): a região só leitura já relocada,
+// o registro de funções (hash → pc) e o registro de syscalls, para conferir o carregador on-chain.
+
+const TOKEN_ID: Pubkey = Pubkey::from_str_const("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+const NATIVE_MINT: Pubkey = Pubkey::from_str_const("So11111111111111111111111111111111111111112");
+
+fn copt(d: &mut Vec<u8>, k: Option<Pubkey>) {
+    match k {
+        Some(k) => {
+            d.extend_from_slice(&[1, 0, 0, 0]);
+            d.extend_from_slice(k.as_ref());
+        }
+        None => d.extend_from_slice(&[0; 36]),
+    }
+}
+
+/// `spl_token::state::Mint` empacotado (82 bytes).
+fn mint_data(authority: Option<Pubkey>, supply: u64, decimals: u8, freeze: Option<Pubkey>) -> Vec<u8> {
+    let mut d = vec![];
+    copt(&mut d, authority);
+    d.extend_from_slice(&supply.to_le_bytes());
+    d.push(decimals);
+    d.push(1);
+    copt(&mut d, freeze);
+    d
+}
+
+/// `spl_token::state::Account` empacotado (165 bytes). state: 1 inicializada, 2 congelada.
+fn token_data(mint: Pubkey, owner: Pubkey, amount: u64, delegate: Option<(Pubkey, u64)>, state: u8, native: Option<u64>) -> Vec<u8> {
+    let mut d = vec![];
+    d.extend_from_slice(mint.as_ref());
+    d.extend_from_slice(owner.as_ref());
+    d.extend_from_slice(&amount.to_le_bytes());
+    copt(&mut d, delegate.map(|x| x.0));
+    d.push(state);
+    match native {
+        Some(n) => {
+            d.extend_from_slice(&[1, 0, 0, 0]);
+            d.extend_from_slice(&n.to_le_bytes());
+        }
+        None => d.extend_from_slice(&[0; 12]),
+    }
+    d.extend_from_slice(&delegate.map(|x| x.1).unwrap_or(0).to_le_bytes());
+    copt(&mut d, None);
+    d
+}
+
+fn token_fixtures(dir: &Path, out_dir: &Path) {
+    let rent = Rent::default();
+    let mint_rent = rent.minimum_balance(82);
+    let acc_rent = rent.minimum_balance(165);
+    let tok = |data: Vec<u8>, lamports: u64| Account { lamports, data, owner: TOKEN_ID, executable: false, rent_epoch: 0 };
+    let wallet = |lamports: u64| account(Pubkey::default(), lamports, vec![]);
+
+    let mint = key(0x20);
+    let auth = key(0x21);
+    let freeze = key(0x22);
+    let alice = key(0x23);
+    let bob = key(0x24);
+    let a = key(0x25);
+    let b = key(0x26);
+    let other_mint = key(0x27);
+    let delegate = key(0x28);
+    let c = key(0x29);
+    let fresh = key(0x2a);
+
+    let mint_ok = tok(mint_data(Some(auth), 1_000_000, 6, Some(freeze)), mint_rent);
+    let mint_uninit = tok(vec![0; 82], mint_rent);
+    let acc_a = |amount: u64| tok(token_data(mint, alice, amount, None, 1, None), acc_rent);
+    let acc_b = tok(token_data(mint, bob, 0, None, 1, None), acc_rent);
+    let acc_uninit = tok(vec![0; 165], acc_rent);
+    let w = |k: Pubkey| AccountMeta::new(k, false);
+    let r = |k: Pubkey| AccountMeta::new_readonly(k, false);
+    let s = |k: Pubkey| AccountMeta::new_readonly(k, true);
+    let amt = |op: u8, v: u64| [vec![op], v.to_le_bytes().to_vec()].concat();
+    let init_mint2 = |decimals: u8, fr: Option<Pubkey>| {
+        let mut d = vec![20, decimals];
+        d.extend_from_slice(auth.as_ref());
+        match fr {
+            Some(f) => {
+                d.push(1);
+                d.extend_from_slice(f.as_ref());
+            }
+            None => d.push(0),
+        }
+        d
+    };
+    let mollusk = Mollusk::default();
+    let rent_sysvar = mollusk.sysvars.keyed_account_for_rent_sysvar();
+
+    let t = |name: &'static str, accounts: Vec<(Pubkey, Account)>, metas: Vec<AccountMeta>, data: Vec<u8>| Case { name, program: "spl_token", accounts, metas, data };
+    let transfer = |accts: Vec<(Pubkey, Account)>, signer: Pubkey, _lamports: u64| {
+        let mut v = accts;
+        v.push((signer, wallet(0)));
+        v
+    };
+    let mut cases = vec![
+        t("token_initialize_mint2", vec![(mint, mint_uninit.clone())], vec![w(mint)], init_mint2(6, None)),
+        t("token_initialize_mint2_freeze", vec![(mint, mint_uninit.clone())], vec![w(mint)], init_mint2(9, Some(freeze))),
+        t("token_initialize_mint2_twice", vec![(mint, mint_ok.clone())], vec![w(mint)], init_mint2(6, None)),
+        t("token_initialize_mint2_not_rent_exempt", vec![(mint, tok(vec![0; 82], mint_rent - 1))], vec![w(mint)], init_mint2(6, None)),
+        t("token_initialize_mint_rent_account", vec![(mint, mint_uninit.clone()), rent_sysvar.clone()], vec![w(mint), r(rent_sysvar.0)], {
+            let mut d = init_mint2(6, None);
+            d[0] = 0;
+            d
+        }),
+        t("token_initialize_account3", vec![(fresh, acc_uninit.clone()), (mint, mint_ok.clone())], vec![w(fresh), r(mint)], [vec![18], alice.to_bytes().to_vec()].concat()),
+        t("token_initialize_account3_bad_mint", vec![(fresh, acc_uninit.clone()), (mint, mint_uninit.clone())], vec![w(fresh), r(mint)], [vec![18], alice.to_bytes().to_vec()].concat()),
+        t("token_initialize_account", vec![(fresh, acc_uninit.clone()), (mint, mint_ok.clone()), (alice, wallet(1_000_000)), rent_sysvar.clone()], vec![w(fresh), r(mint), r(alice), r(rent_sysvar.0)], vec![1]),
+        t("token_initialize_immutable_owner", vec![(fresh, acc_uninit.clone())], vec![w(fresh)], vec![22]),
+        t("token_mint_to", transfer(vec![(mint, mint_ok.clone()), (a, acc_a(500_000))], auth, 0), vec![w(mint), w(a), s(auth)], amt(7, 250_000)),
+        t("token_mint_to_wrong_authority", transfer(vec![(mint, mint_ok.clone()), (a, acc_a(500_000))], bob, 0), vec![w(mint), w(a), s(bob)], amt(7, 250_000)),
+        t("token_mint_to_not_signer", transfer(vec![(mint, mint_ok.clone()), (a, acc_a(500_000))], auth, 0), vec![w(mint), w(a), r(auth)], amt(7, 250_000)),
+        t("token_mint_to_overflow", transfer(vec![(mint, mint_ok.clone()), (a, acc_a(500_000))], auth, 0), vec![w(mint), w(a), s(auth)], amt(7, u64::MAX)),
+        t("token_transfer", transfer(vec![(a, acc_a(500_000)), (b, acc_b.clone())], alice, 0), vec![w(a), w(b), s(alice)], amt(3, 100_000)),
+        t("token_transfer_all", transfer(vec![(a, acc_a(500_000)), (b, acc_b.clone())], alice, 0), vec![w(a), w(b), s(alice)], amt(3, 500_000)),
+        t("token_transfer_insufficient", transfer(vec![(a, acc_a(500_000)), (b, acc_b.clone())], alice, 0), vec![w(a), w(b), s(alice)], amt(3, 500_001)),
+        t("token_transfer_wrong_owner", transfer(vec![(a, acc_a(500_000)), (b, acc_b.clone())], bob, 0), vec![w(a), w(b), s(bob)], amt(3, 1)),
+        t("token_transfer_not_signer", transfer(vec![(a, acc_a(500_000)), (b, acc_b.clone())], alice, 0), vec![w(a), w(b), r(alice)], amt(3, 1)),
+        t("token_transfer_mint_mismatch", transfer(vec![(a, acc_a(500_000)), (c, tok(token_data(other_mint, bob, 0, None, 1, None), acc_rent))], alice, 0), vec![w(a), w(c), s(alice)], amt(3, 1)),
+        t("token_transfer_to_self", transfer(vec![(a, acc_a(500_000))], alice, 0), vec![w(a), w(a), s(alice)], amt(3, 7)),
+        t("token_transfer_readonly_destination", transfer(vec![(a, acc_a(500_000)), (b, acc_b.clone())], alice, 0), vec![w(a), r(b), s(alice)], amt(3, 1)),
+        t("token_transfer_missing_accounts", vec![(a, acc_a(500_000)), (b, acc_b.clone())], vec![w(a), w(b)], amt(3, 1)),
+        t("token_transfer_frozen", transfer(vec![(a, tok(token_data(mint, alice, 500_000, None, 2, None), acc_rent)), (b, acc_b.clone())], alice, 0), vec![w(a), w(b), s(alice)], amt(3, 1)),
+        t("token_transfer_checked", transfer(vec![(a, acc_a(500_000)), (mint, mint_ok.clone()), (b, acc_b.clone())], alice, 0), vec![w(a), r(mint), w(b), s(alice)], [amt(12, 42_000), vec![6]].concat()),
+        t("token_transfer_checked_bad_decimals", transfer(vec![(a, acc_a(500_000)), (mint, mint_ok.clone()), (b, acc_b.clone())], alice, 0), vec![w(a), r(mint), w(b), s(alice)], [amt(12, 42_000), vec![7]].concat()),
+        t("token_approve", transfer(vec![(a, acc_a(500_000)), (delegate, wallet(0))], alice, 0), vec![w(a), r(delegate), s(alice)], amt(4, 1_000)),
+        t("token_revoke", transfer(vec![(a, tok(token_data(mint, alice, 500_000, Some((delegate, 1_000)), 1, None), acc_rent))], alice, 0), vec![w(a), s(alice)], vec![5]),
+        t("token_transfer_by_delegate", transfer(vec![(a, tok(token_data(mint, alice, 500_000, Some((delegate, 1_000)), 1, None), acc_rent)), (b, acc_b.clone())], delegate, 0), vec![w(a), w(b), s(delegate)], amt(3, 600)),
+        t("token_transfer_delegate_exceeds", transfer(vec![(a, tok(token_data(mint, alice, 500_000, Some((delegate, 1_000)), 1, None), acc_rent)), (b, acc_b.clone())], delegate, 0), vec![w(a), w(b), s(delegate)], amt(3, 1_500)),
+        t("token_burn", transfer(vec![(a, acc_a(500_000)), (mint, mint_ok.clone())], alice, 0), vec![w(a), w(mint), s(alice)], amt(8, 123)),
+        t("token_close_account", vec![(b, acc_b.clone()), (alice, wallet(1_000_000)), (bob, wallet(0))], vec![w(b), w(alice), s(bob)], vec![9]),
+        t("token_close_account_with_balance", transfer(vec![(a, acc_a(500_000)), (bob, wallet(1_000_000))], alice, 0), vec![w(a), w(bob), s(alice)], vec![9]),
+        t("token_freeze_account", transfer(vec![(a, acc_a(500_000)), (mint, mint_ok.clone())], freeze, 0), vec![w(a), r(mint), s(freeze)], vec![10]),
+        t("token_set_authority", transfer(vec![(mint, mint_ok.clone())], auth, 0), vec![w(mint), s(auth)], [vec![6, 0, 1], bob.to_bytes().to_vec()].concat()),
+        t("token_get_account_data_size", vec![(mint, mint_ok.clone())], vec![r(mint)], vec![21]),
+        t("token_amount_to_ui_amount", vec![(mint, mint_ok.clone())], vec![r(mint)], amt(23, 1_234_567)),
+        t("token_ui_amount_to_amount", vec![(mint, mint_ok.clone())], vec![r(mint)], [vec![24], b"12.5".to_vec()].concat()),
+        t("token_sync_native", vec![(fresh, tok(token_data(NATIVE_MINT, alice, 0, None, 1, Some(acc_rent)), acc_rent + 5_000))], vec![w(fresh)], vec![17]),
+        t("token_invalid_instruction", vec![(a, acc_a(1))], vec![w(a)], vec![99]),
+        t("token_empty_data", vec![], vec![], vec![]),
+    ];
+    let _ = &mut cases;
+
+    let mut out = vec![];
+    for c in &cases {
+        let v = run_case_with(dir, c, TOKEN_ID, mollusk_svm::program::loader_keys::LOADER_V2, true);
+        println!("{:<40} {:<46} cu={:<6} logs={}", c.name, v["expect"]["error"].to_string(), v["expect"]["cu"], v["expect"]["logs"].as_array().map(|l| l.len()).unwrap_or(0));
+        out.push(v);
+    }
+
+    // o carregador do agave (mesmo ambiente do Mollusk: features todas ativas, sem labels de depuração)
+    let elf = fs::read(dir.join("spl_token.so")).unwrap();
+    let env = solana_syscalls::create_program_runtime_environment(&mollusk.feature_set, &mollusk.compute_budget.to_budget(), false, false).unwrap();
+    let exe = solana_sbpf::elf::Executable::<solana_program_runtime::invoke_context::InvokeContext>::load(&elf, (*env).clone()).unwrap();
+    exe.verify::<solana_sbpf::verifier::RequisiteVerifier>().unwrap();
+    let (text_vaddr, text) = exe.get_text_bytes();
+    let mut functions: Vec<(u32, usize)> = exe.get_function_registry().iter().map(|(k, (_, pc))| (k, pc)).collect();
+    functions.sort();
+    let mut syscalls: Vec<(u32, String)> = env.get_function_registry().iter().map(|(k, (name, _))| (k, String::from_utf8_lossy(name).to_string())).collect();
+    syscalls.sort();
+    let loaded = json!({
+        "sbpfVersion": format!("{:?}", exe.get_sbpf_version()),
+        "roVaddr": exe.get_ro_region().vm_addr_range().start,
+        "ro": hex(exe.get_ro_section()),
+        "textVaddr": text_vaddr,
+        "textLen": text.len(),
+        "entryPc": exe.get_entrypoint_instruction_offset(),
+        "functions": functions.iter().map(|(k, pc)| json!([k, pc])).collect::<Vec<_>>(),
+        "syscalls": syscalls.iter().map(|(k, n)| json!([k, n])).collect::<Vec<_>>(),
+    });
+    println!("spl_token.so: {:?}, ro {} bytes em 0x{:x}, texto em 0x{:x} ({} instruções), entrada {}, {} funções",
+        exe.get_sbpf_version(), exe.get_ro_section().len(), exe.get_ro_region().vm_addr_range().start, text_vaddr, text.len() / 8,
+        exe.get_entrypoint_instruction_offset(), functions.len());
+
+    let body = json!({ "programs": { "spl_token": hex(&elf) }, "loaded": { "spl_token": loaded }, "fixtures": out });
+    fs::write(out_dir.join("token.json"), serde_json::to_string_pretty(&body).unwrap() + "\n").unwrap();
+    println!("fixtures/solana/token.json: {} casos", out.len());
+}
+
 fn main() {
     let dir = std::env::args().nth(1).expect("uso: sbpf-runtime-reference <dir com os .so>");
     let dir = Path::new(&dir);
@@ -642,4 +840,6 @@ fn main() {
     let body = json!({ "programs": programs, "fixtures": out });
     fs::write(out_dir.join("programs.json"), serde_json::to_string_pretty(&body).unwrap() + "\n").unwrap();
     println!("fixtures/solana/programs.json: {} casos", out.len());
+
+    token_fixtures(dir, &out_dir);
 }

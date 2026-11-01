@@ -111,4 +111,42 @@ function findVaultIx(programId, seedWord = "vault") {
   return pdaIx(1, [seeds, 1, pid, out, bumpOut], 0, h);
 }
 
-module.exports = { HEAP, INPUT, SYSTEM, keyFor, w, r, ws, u64le, Heap, pdaIx, onCurve, findPda, vaultTransferIx, findVaultIx };
+// ------------------------------------------------------------------ SPL Token (Tokenkeg...)
+const TOKEN_PROGRAM = "0x06ddf6e1d765a193d9cbe146ceeb79ac1cb485ed5f5b37913a8cf5857eff00a9"; // TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA
+const MINT_LEN = 82;
+const TOKEN_ACCOUNT_LEN = 165;
+/// Rent::default().minimum_balance(len) (6960 lamports por byte, 128 de overhead)
+const rentExempt = (len) => BigInt((128 + len) * 6960);
+const ixData = (...parts) => ethers.hexlify(Uint8Array.from(parts.flat()));
+const token = {
+  /// InitializeMint2 { decimals, mint_authority, freeze_authority: None }  — contas: [mint (w)]
+  initializeMint2: (decimals, authority) => ixData([20, decimals], [...ethers.getBytes(authority)], [0]),
+  /// InitializeAccount3 { owner } — contas: [conta (w), mint]
+  initializeAccount3: (owner) => ixData([18], [...ethers.getBytes(owner)]),
+  /// MintTo { amount } — contas: [mint (w), destino (w), autoridade (s)]
+  mintTo: (amount) => ixData([7], u64le(amount)),
+  /// Transfer { amount } — contas: [origem (w), destino (w), dono (s)]
+  transfer: (amount) => ixData([3], u64le(amount)),
+  /// TransferChecked { amount, decimals } — contas: [origem (w), mint, destino (w), dono (s)]
+  transferChecked: (amount, decimals) => ixData([12], u64le(amount), [decimals]),
+  /// Burn { amount } — contas: [conta (w), mint (w), dono (s)]
+  burn: (amount) => ixData([8], u64le(amount)),
+};
+/// Saldo de uma conta de token (u64 no offset 64 dos 165 bytes).
+function tokenAmount(data) {
+  const b = ethers.getBytes(data);
+  let v = 0n;
+  for (let i = 7; i >= 0; i--) v = (v << 8n) | BigInt(b[64 + i]);
+  return v;
+}
+/// Supply de um mint (u64 no offset 36).
+function mintSupply(data) {
+  const b = ethers.getBytes(data);
+  let v = 0n;
+  for (let i = 7; i >= 0; i--) v = (v << 8n) | BigInt(b[36 + i]);
+  return v;
+}
+const s = (key) => meta(key, true, false);
+
+module.exports = {
+  TOKEN_PROGRAM, MINT_LEN, TOKEN_ACCOUNT_LEN, rentExempt, token, tokenAmount, mintSupply, s, HEAP, INPUT, SYSTEM, keyFor, w, r, ws, u64le, Heap, pdaIx, onCurve, findPda, vaultTransferIx, findVaultIx };

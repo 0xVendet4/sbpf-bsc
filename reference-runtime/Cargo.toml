@@ -19,6 +19,7 @@ solana-instruction = "=3.5.1"
 solana-sdk-ids = "=3.1.0"
 solana-rent = "=4.4.0"
 bs58 = "=0.5.1"
+solana-syscalls = "=4.3.0"
 
 [profile.release]
 debug = false

@@ -93,6 +93,7 @@ fn account_json(k: &Pubkey, a: &Account) -> Value {
 
 fn run_case(dir: &Path, c: &Case) -> Value {
     let program_id = key(0xee);
+    let elf = fs::read(dir.join(format!("{}.so", c.program))).unwrap_or_else(|_| panic!("faltando {}.so", c.program));
     let mut mollusk = Mollusk::default();
     mollusk.add_program_with_loader_and_elf(&program_id, &bpf_loader_upgradeable::id(), &elf);
     mollusk.sysvars.clock.slot = 123_456;

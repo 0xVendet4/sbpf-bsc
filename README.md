@@ -1,6 +1,8 @@
 # VM dentro de VM — Solana rodando dentro da BSC
 
-**Colocamos a máquina virtual da Solana dentro de um contrato na BSC.** `SbpfVM.sol` é um
+**Colocamos a máquina virtual da Solana dentro de um contrato na BSC.** Parte 1: uma VM sBPF v0
+reduzida e o jogo CU Golf. Parte 2 (abaixo): programas Solana compilados de verdade, com contas,
+CPI e PDAs, iguais ao agave. **Parte 1:** `SbpfVM.sol` é um
 interpretador de bytecode **sBPF v0** (o formato dos programas Solana) escrito em Solidity. Ele
 executa programas Solana instrução por instrução, on-chain, e o resultado bate bit a bit com a VM
 oficial: **2.024 de 2.024 fixtures gerados pelo `solana-sbpf` são idênticos**, incluindo 1.000
@@ -15,7 +17,86 @@ programs/*.s ──assembler do solana-sbpf──► bytecode ──► referenc
                                                  └──► contracts/src/SbpfVM.sol (EVM) ◄── teste diferencial
 ```
 
-## Na BSC testnet (chain 97)
+## Parte 2 — programas Solana de verdade rodando na BSC
+
+A parte 1 é uma VM reduzida (sBPF v0, sem syscalls). A parte 2 roda **programas Solana compilados
+de verdade** (arquivos `.so`, sBPF v3) dentro da EVM, com contas, syscalls, CPI e PDAs, e o
+resultado é **o mesmo do agave** (o validador da Solana): erro, compute units, log, return data e
+contas finais.
+
+```
+.so (ELF sBPF v3) ──► SolanaStore.deployProgram ──► código de contrato (SSTORE2), verificado 1 vez
+instrução (metas + dados) ──► SolanaStore.invoke ──► SolanaRuntime ──► SolanaVM ──(CPI)──► SolanaCpi
+                                                       │ serializa as contas (ABIv1)  │ suspende e retoma
+                                                       └─ aplica as regras do loader ◄┘ log: SolanaLog
+```
+
+| Contrato | O que faz |
+|---|---|
+| `SolanaVM.sol` | Carregador ELF estrito (SIMD-0189), verificador e interpretador sBPF v3, mapa de memória do agave, syscalls de log, memória, return data, sysvars, sha256/keccak, panic e PDA (`sol_create_program_address`, `sol_try_find_program_address`, curva ed25519 via precompile `modexp`). Numa CPI a VM se suspende e devolve o estado. |
+| `SolanaCpi.sol` | `sol_invoke_signed_c` e `sol_invoke_signed_rust` como no agave 4.3: tradução da instrução, dos `AccountInfo` e das seeds, regras de privilégio (signer/writable), assinatura por PDA e o **system program** (CreateAccount, Assign, Transfer, Allocate). |
+| `SolanaRuntime.sol` | Serializa as contas (ABIv1 com direct mapping), roda a VM, executa as CPIs e aplica as regras do loader (`deserialize_parameters`: lamports, realloc, dono, saldo). |
+| `SolanaLog.sol` | Log no formato do agave (`Program … invoke [1]`, `Program log:`, `consumed X of Y compute units`, `failed: …`). |
+| `SolanaStore.sol` | Guarda programas e contas Solana na BSC e processa instruções por transação. |
+
+**Conferido contra o agave.** `reference-runtime/` roda os mesmos programas no Mollusk 0.16.4
+(agave 4.3, o runtime da mainnet) e grava `fixtures/solana/programs.json`: **65 de 65 cenários
+idênticos**, incluindo a memória de input serializada byte a byte. Os programas são os exemplos do
+repositório do agave (hello, clock, write-to-account, simple-transfer) e um programa de teste
+montado em `reference-runtime/src/main.rs` para PDAs e CPI pela ABI C e Rust com assinatura por
+PDA (transfer, create_account, allocate, assign e 20 casos de erro). O ISA v3 bate em
+**1.518 de 1.518** casos contra o `solana-sbpf`.
+
+### Na BSC testnet (deploy de 2026-11-01)
+
+| Contrato | Endereço |
+|---|---|
+| `SolanaVM` | [`0x6C3D928935CFe57eB7d028b630f9844d61EE9521`](https://testnet.bscscan.com/address/0x6C3D928935CFe57eB7d028b630f9844d61EE9521) |
+| `SolanaCpi` | [`0xF43dA7CE1a50a06a516dE09A1289f9Ff2e69055C`](https://testnet.bscscan.com/address/0xF43dA7CE1a50a06a516dE09A1289f9Ff2e69055C) |
+| `SolanaLog` | [`0x4d57137b664c11524a1c8D8A27c1171405A86f24`](https://testnet.bscscan.com/address/0x4d57137b664c11524a1c8D8A27c1171405A86f24) |
+| `SolanaRuntime` | [`0xaA30fC3A8bF539B9CD24319aD7Aa873dD7672856`](https://testnet.bscscan.com/address/0xaA30fC3A8bF539B9CD24319aD7Aa873dD7672856) |
+| `SolanaStore` | [`0xb101A464810C59c66E62B34367fB53193c022B76`](https://testnet.bscscan.com/address/0xb101A464810C59c66E62B34367fB53193c022B76) |
+
+Transações reais (programas publicados por `0x3D4c…1013`, ver `deployments/bscTestnet-solana.json`):
+
+| O que | Gás | Tx |
+|---|---|---|
+| Publicar o `simple_transfer_program` (54 KB, verificado no deploy) | 15,398,950 | [tx](https://testnet.bscscan.com/tx/0x7564535f330b832203ad3a43b93508f6742f8bb4c25541dae4d13d4952eb04c8) |
+| `hello`: o programa loga "Hello, Solana!" | 217,997 | [tx](https://testnet.bscscan.com/tx/0x9dd25127ebe1838e76a6c2ffe4da4d2be4e137822fd426548c11ec6008b5909b) |
+| CPI: programa compilado chama o system program e transfere 2500 lamports | 2,870,110 | [tx](https://testnet.bscscan.com/tx/0x97c6bfca5aebced830530601e1139d2ca1b96cd8b6a303a16b41c6369207fdf6) |
+| PDA: `try_find_program_address(["vault"])` on-chain | 267,364 | [tx](https://testnet.bscscan.com/tx/0xe8dce6929b6d96753d2460538095ab7787a25a5cecf5e6f37544f02653dfec3c) |
+| Cofre PDA: o programa assina pela conta derivada e paga 1234 lamports | 712,776 | [tx](https://testnet.bscscan.com/tx/0x2084d7f034a208de324e85b4b6936ee37cfa66d6429f6407b0a927f2522d562a) |
+
+Reproduzir: `npx hardhat run scripts/deploy-solana.js --network bscTestnet` e depois
+`scripts/solana-demo.js` (o cliente mínimo, com chaves, PDAs e os dados do programa de teste, está
+em `scripts/solana-client.js`).
+
+### Como usar o `SolanaStore`
+
+- **Chaves e assinaturas.** Uma chave Solana (32 bytes) é assinada por `msg.sender` quando os 20
+  últimos bytes são o endereço dele; cada endereço controla 2^96 chaves (prefixo de 12 bytes).
+  PDAs são derivados como na Solana e só o programa dono assina por eles (seeds na CPI).
+- **Lamports são wei.** `deposit(key)` credita o BNB enviado; `withdraw(key, lamports, to)` saca.
+- **System program direto:** `transfer`, `createAccount`, `allocate`, `assign`.
+- **Programas:** `deployProgram(programId, elf)`; `invoke(programId, metas, data, cuLimit)` roda a
+  instrução e emite `Invoked` com CU, return data e o log; falha reverte com
+  `ProgramFailed(err, custom, logs)` (err = índice do `InstructionError` + 1). `simulate(…, signer)`
+  roda sem gravar.
+
+### Limites da parte 2
+
+- **CPI só para o system program** (CreateAccount, Assign, Transfer, Allocate). CPI de um programa
+  sBPF para outro ainda não existe (erro explícito), então nada de SPL Token por enquanto. Ainda não
+  testamos um programa Anchor completo.
+- **Sem rent e sem taxas** (lamports são wei; o teste de rent do Mollusk está desligado nos fixtures).
+- Syscalls não implementadas: secp256k1_recover, curvas (ed25519/ristretto/bn128), poseidon,
+  blake3, sha512, big_mod_exp, epoch stake, sibling instructions (devolvem erro explícito).
+- **Gás:** ~200 k para uma instrução pequena, 0,5–0,8 M com contas e CPI simples, ~2,9 M para a CPI
+  do programa de 54 KB (o ELF é copiado entre os contratos). Publicar um programa custa ~280 gás por
+  byte (SSTORE2 + verificação).
+- **Não auditado.** Testnet apenas. A mainnet (parte 3) usa carteira nova.
+
+## Parte 1 na BSC testnet (chain 97)
 
 Segundo deploy, 2026-11-01, por `0x3D4c4eBDeeCd265FC744E10c445be9Df89361013` (≈ 0,0007 tBNB a
 0,1 gwei). Endereços, argumentos do construtor e versão do compilador em
@@ -298,6 +379,8 @@ done:
 
 ## Próximos passos
 
+0. Parte 2: CPI de um programa sBPF para outro (hoje só o system program), prova de fraude com
+   memória em Merkle para a VM v3, menos gás na CPI (não copiar o ELF entre contratos), exemplo Anchor.
 1. Verificar os contratos no BscScan (deploy na testnet feito; falta a verificação, ver acima).
 2. Gás: ~530 → meta 300–400 por instrução (despacho por tabela de saltos em Yul, menos `byte()` na
    decodificação, registradores r0..r3 em variáveis).

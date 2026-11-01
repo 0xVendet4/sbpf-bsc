@@ -4,31 +4,31 @@
   "deployer": "0x3D4c4eBDeeCd265FC744E10c445be9Df89361013",
   "contracts": {
     "SolanaVM": {
-      "address": "0xcD7EacC778218cF789D1cE5740a667c05d26610E",
+      "address": "0x908daC27e95aff997f1dC723cE1dfd52da43c11E",
       "args": [],
-      "source": "contracts/src/SolanaVM.sol:SolanaVM",
-      "tx": "0x21afc81e6a7f57a067d0aa07be24e95d5416075b128043d1bcad17e69a96718c"
+      "tx": "0x482edd0170752e576976ce166ebae2ad8ad480b26a1c652c4bb29619df0cbf7b",
+      "source": "contracts/src/SolanaVM.sol:SolanaVM"
     },
     "SolanaCpi": {
-      "address": "0xF43dA7CE1a50a06a516dE09A1289f9Ff2e69055C",
+      "address": "0x11BFa2965da016E83c6Fc174a50e57A990b95162",
       "args": [],
-      "tx": "0xb969f3ea7f36f83cec05771d34b1ddf75e1f9d19abddfaf94ab8d27227ab5151",
+      "tx": "0xe3a09c75f6216d018c4d3e217dfc00df22e8f6d170dff6c79fc5bdd9c1e707be",
       "source": "contracts/src/SolanaCpi.sol:SolanaCpi"
     },
     "SolanaLog": {
-      "address": "0x4d57137b664c11524a1c8D8A27c1171405A86f24",
+      "address": "0x1C199a6F74bF88aD9c218553C4AE4a97DB8eFa61",
       "args": [],
-      "tx": "0x625fa92ab0427a05143e26dc692cb209eb265a337022324756c318fe7a70c34e",
+      "tx": "0x9c33f94947be511759a7da51555462caf0bf92d9baf05cde633c60082b04eed8",
       "source": "contracts/src/SolanaLog.sol:SolanaLog"
     },
     "SolanaRuntime": {
-      "address": "0x5DB7829346dDBc6Ef37c2E209EB467421311e579",
+      "address": "0xC4948B424a41868Bd17181FfD4e3e5bc81d1750B",
       "args": [
-        "0xcD7EacC778218cF789D1cE5740a667c05d26610E",
-        "0xF43dA7CE1a50a06a516dE09A1289f9Ff2e69055C",
-        "0x4d57137b664c11524a1c8D8A27c1171405A86f24"
+        "0x908daC27e95aff997f1dC723cE1dfd52da43c11E",
+        "0x11BFa2965da016E83c6Fc174a50e57A990b95162",
+        "0x1C199a6F74bF88aD9c218553C4AE4a97DB8eFa61"
       ],
-      "tx": "0x9c59da43004c23423c418c5e684740bfc646b998bee1ddd082c0e94d1c4b1cc3",
+      "tx": "0xb2edf28edfd5c4f89b7aefc8cbddf060362692b117b0e64fffe694341a7f8a22",
       "source": "contracts/src/SolanaRuntime.sol:SolanaRuntime"
     },
     "SolanaLoader": {
@@ -38,12 +38,12 @@
       "source": "contracts/src/SolanaLoader.sol:SolanaLoader"
     },
     "SolanaStore": {
-      "address": "0xdc164254E5E50BbFE643D5CaA8C14BE9fA6971AA",
+      "address": "0x9570358F8D8E3938e0d7A6D67d749f064f75183b",
       "args": [
-        "0x5DB7829346dDBc6Ef37c2E209EB467421311e579",
+        "0xC4948B424a41868Bd17181FfD4e3e5bc81d1750B",
         "0xCeA431eEB87d8ECe5255E7d2c7E119a9E4F8abc0"
       ],
-      "tx": "0xa917978e1e63eacbb47b3462ae5ea5ca21a7a0c71c7fa2e099d0feaf36bc7359",
+      "tx": "0x50c8c25242cb056088eb243c15a959832549a8ae01d01ad393d8214371fd57f9",
       "source": "contracts/src/SolanaStore.sol:SolanaStore"
     }
   }

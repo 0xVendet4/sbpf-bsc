@@ -27,7 +27,7 @@ return data e contas finais.
 
 ```
 .so (ELF sBPF v3) ──► SolanaStore.deployProgram ──► código de contrato (SSTORE2), verificado 1 vez
-.so (ELF sBPF v0) ──► writeProgram ×N + finalizeProgram ──► SolanaLoader (relocações, como o agave)
+.so (ELF sBPF v0) ──► writeProgram ×N + finalizeProgram + verifyProgram ──► SolanaLoader (relocações, como o agave)
 instrução (metas + dados) ──► SolanaStore.invoke ──► SolanaRuntime ──► SolanaVM ──(CPI)──► SolanaCpi
                                                        │ serializa as contas (ABIv1)  │ suspende e retoma
                                                        └─ aplica as regras do loader ◄┘ log: SolanaLog
@@ -36,11 +36,11 @@ instrução (metas + dados) ──► SolanaStore.invoke ──► SolanaRuntime
 | Contrato | O que faz |
 |---|---|
 | `SolanaVM.sol` | Carregador ELF estrito (SIMD-0189), verificador e interpretador sBPF v3, mapa de memória do agave, syscalls de log, memória, return data, sysvars, sha256/keccak, panic e PDA (`sol_create_program_address`, `sol_try_find_program_address`, curva ed25519 via precompile `modexp`). Numa CPI a VM se suspende e devolve o estado. |
-| `SolanaCpi.sol` | `sol_invoke_signed_c` e `sol_invoke_signed_rust` como no agave 4.3: tradução da instrução, dos `AccountInfo` e das seeds, regras de privilégio (signer/writable), assinatura por PDA e o **system program** (CreateAccount, Assign, Transfer, Allocate). |
-| `SolanaRuntime.sol` | Serializa as contas (ABIv1 com direct mapping), roda a VM, executa as CPIs e aplica as regras do loader (`deserialize_parameters`: lamports, realloc, dono, saldo). |
+| `SolanaCpi.sol` | `sol_invoke_signed_c` e `sol_invoke_signed_rust` como no agave 4.3: tradução da instrução, dos `AccountInfo` e das seeds, regras de privilégio (signer/writable), assinatura por PDA, o **system program** (CreateAccount, Assign, Transfer, Allocate) e a volta das contas depois de um programa sBPF chamado (`update_caller_account`). |
+| `SolanaRuntime.sol` | Serializa as contas (ABIv1 com direct mapping), roda a VM, executa as CPIs (programa sBPF chamado numa chamada aninhada, até a altura 9 da pilha de instruções, sem reentrância) e aplica as regras do loader (`deserialize_parameters`: lamports, realloc, dono, saldo). |
 | `SolanaLog.sol` | Log no formato do agave (`Program … invoke [1]`, `Program log:`, `consumed X of Y compute units`, `failed: …`). |
 | `SolanaLoader.sol` | Carregador de ELF **sBPF v0** (o formato de quase todos os programas da mainnet, como o SPL Token): seções, relocações `R_BPF_64_64`/`64_RELATIVE`/`64_32`, registro de funções por murmur3 e região só leitura **byte a byte iguais ao `Executable::load` do agave**. Roda uma vez, na publicação. |
-| `SolanaStore.sol` | Guarda programas e contas Solana na BSC e processa instruções por transação. Programas grandes sobem em pedaços (`writeProgram`) e são carregados em `finalizeProgram`. |
+| `SolanaStore.sol` | Guarda programas e contas Solana na BSC e processa instruções por transação. Programas grandes sobem em pedaços (`writeProgram`), são carregados em `finalizeProgram` e verificados em `verifyProgram`; a imagem pronta pode ser guardada (`writeImage` + `finalizeImage`, conferida contra a remontagem) para cada instrução não precisar remontá-la. |
 
 **Conferido contra o agave.** `reference-runtime/` roda os mesmos programas no Mollusk 0.16.4
 (agave 4.3, o runtime da mainnet) e grava `fixtures/solana/programs.json`: **65 de 65 cenários
@@ -65,35 +65,66 @@ código custom, CU, log e contas finais). O carregamento também é conferido: a
 de 105.744 bytes, os 29 pontos de entrada e a entrada do programa saem iguais ao carregador do
 agave (`test/Loader.test.js`).
 
-Na Solana o Transfer custa 76 CU; aqui também, e custa **~1,05 M de gás** na BSC (≈ 0,0001 BNB a
-0,1 gwei).
+Na Solana o Transfer custa 76 CU; aqui também, e custa **~0,66 M de gás** na BSC (≈ 0,00007 BNB a
+0,1 gwei) com a imagem do programa guardada.
 
-### Na BSC testnet (deploy de 2026-11-01, v2 com o carregador v0)
+### Associated Token Account: um programa sBPF chamando outro
+
+O Associated Token Account oficial (`ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL`, 105 KB, sBPF
+v0, o mesmo binário da mainnet da Solana) também roda sem alteração. Para criar a conta de token de
+uma carteira ele faz **quatro CPIs na mesma instrução**: `GetAccountDataSize` no SPL Token (que
+devolve 165 por return data), `CreateAccount` no system program assinado pelo PDA,
+`InitializeImmutableOwner` e `InitializeAccount3` no SPL Token. O `SolanaRuntime` roda cada
+programa chamado numa chamada aninhada com memória própria, com as regras do agave (altura máxima
+9, `ReentrancyNotAllowed`, `Program is not cached` quando o programa não está entre as contas,
+CU e return data compartilhados, log `invoke [2]`).
+
+**Conferido contra o agave.** 15 cenários no Mollusk (`fixtures/solana/ata.json`): Create,
+CreateIdempotent (nova e existente), conta pré-financiada, endereço errado, dono errado, pagador
+sem assinatura ou sem saldo, mint inválido ou não inicializado, programa fora do cache, instrução
+inválida e CU acabando dentro do ATA e dentro do SPL Token. Os 15 dão o mesmo erro, CU, log
+(com as linhas do programa chamado), return data e contas finais.
+
+### Na BSC testnet (deploy de 2026-11-01, v3 com CPI entre programas sBPF)
 
 | Contrato | Endereço |
 |---|---|
-| `SolanaVM` | [`0xcD7EacC778218cF789D1cE5740a667c05d26610E`](https://testnet.bscscan.com/address/0xcD7EacC778218cF789D1cE5740a667c05d26610E) |
-| `SolanaCpi` | [`0xF43dA7CE1a50a06a516dE09A1289f9Ff2e69055C`](https://testnet.bscscan.com/address/0xF43dA7CE1a50a06a516dE09A1289f9Ff2e69055C) |
-| `SolanaLog` | [`0x4d57137b664c11524a1c8D8A27c1171405A86f24`](https://testnet.bscscan.com/address/0x4d57137b664c11524a1c8D8A27c1171405A86f24) |
-| `SolanaRuntime` | [`0x5DB7829346dDBc6Ef37c2E209EB467421311e579`](https://testnet.bscscan.com/address/0x5DB7829346dDBc6Ef37c2E209EB467421311e579) |
+| `SolanaVM` | [`0x908daC27e95aff997f1dC723cE1dfd52da43c11E`](https://testnet.bscscan.com/address/0x908daC27e95aff997f1dC723cE1dfd52da43c11E) |
+| `SolanaCpi` | [`0x11BFa2965da016E83c6Fc174a50e57A990b95162`](https://testnet.bscscan.com/address/0x11BFa2965da016E83c6Fc174a50e57A990b95162) |
+| `SolanaLog` | [`0x1C199a6F74bF88aD9c218553C4AE4a97DB8eFa61`](https://testnet.bscscan.com/address/0x1C199a6F74bF88aD9c218553C4AE4a97DB8eFa61) |
+| `SolanaRuntime` | [`0xC4948B424a41868Bd17181FfD4e3e5bc81d1750B`](https://testnet.bscscan.com/address/0xC4948B424a41868Bd17181FfD4e3e5bc81d1750B) |
 | `SolanaLoader` | [`0xCeA431eEB87d8ECe5255E7d2c7E119a9E4F8abc0`](https://testnet.bscscan.com/address/0xCeA431eEB87d8ECe5255E7d2c7E119a9E4F8abc0) |
-| `SolanaStore` | [`0xdc164254E5E50BbFE643D5CaA8C14BE9fA6971AA`](https://testnet.bscscan.com/address/0xdc164254E5E50BbFE643D5CaA8C14BE9fA6971AA) |
+| `SolanaStore` | [`0x9570358F8D8E3938e0d7A6D67d749f064f75183b`](https://testnet.bscscan.com/address/0x9570358F8D8E3938e0d7A6D67d749f064f75183b) |
 
 SPL Token publicado e usado de verdade (`deployments/bscTestnet-token-demo.json`):
 
 | O que | CU | Gás | Tx |
 |---|---|---|---|
-| Publicar o SPL Token: 5 pedaços de ≤24 KB | | 4 × ~5,25 M + 2,25 M | [1º pedaço](https://testnet.bscscan.com/tx/0x8558037185571c1a168e65d6566209d89448e853b775ffe7dfb76f61edd90d46) |
-| `finalizeProgram`: carregar o ELF v0 on-chain e verificar | | 12,380,757 | [tx](https://testnet.bscscan.com/tx/0x4489a09bba091ed28077b4d1949c09a6134331ce8e0e15d752e837cc79ae2265) |
-| `InitializeMint2` (6 casas) | 202 | 965,688 | [tx](https://testnet.bscscan.com/tx/0x250a5ff314a437c167374ab69980c341de377b18a35adcc61dc587d95b8dba94) |
-| `InitializeAccount3` | 233 | 1,087,333 | [tx](https://testnet.bscscan.com/tx/0x0143ad12bb6d03bcecd2700f3c78eb04135c748515b26ca8f0077ea355bb517f) |
-| `MintTo` 1,000000 | 120 | 1,093,019 | [tx](https://testnet.bscscan.com/tx/0x9ecf274067a9d7e8573c46f99756587dfc75ae37c9c4a1a55dea04b8ba9508fa) |
-| `Transfer` 0,250000 de A para B | 76 | 1,049,334 | [tx](https://testnet.bscscan.com/tx/0x98377247e95bdd42cd6bc719dd81788468a5f82ed42f3e371e4f7174e74e29f9) |
+| Publicar o SPL Token: 5 pedaços de ≤24 KB | | 4 × ~5,25 M + 2,26 M | [1º pedaço](https://testnet.bscscan.com/tx/0x15af803660d1bba7c3ec67c5e61de0c0044a3104f2f0a1c15f4000f54ab4abda) |
+| `finalizeProgram`: carregar o ELF v0 on-chain | | 3,830,409 | [tx](https://testnet.bscscan.com/tx/0xeeea744a921dcda671f38f1328d46d97913f90bf6374302c3f421302caf2d857) |
+| `verifyProgram`: verificar a imagem e ativar | | 8,741,034 | [tx](https://testnet.bscscan.com/tx/0xe1289b78ed915951eb86b47447bed95f319154665002a8e1953109a79d659817) |
+| Guardar a imagem pronta (5 pedaços + `finalizeImage`) | | 4 × ~5,25 M + 1,71 M + 0,59 M | [finalizeImage](https://testnet.bscscan.com/tx/0xd168ae20865330b446dfdd77de1f04e1e0c283c2008b63032b60cbed48fd7757) |
+| `InitializeMint2` (6 casas) | 202 | 558,751 | [tx](https://testnet.bscscan.com/tx/0xf3b45388d16da597c029451021755e00e05c57198942296fb3988ed69df077d1) |
+| `InitializeAccount3` | 233 | 669,731 | [tx](https://testnet.bscscan.com/tx/0x220d6ca57aef9a12633546f8af90b164d17ed91e7c1f22ec805d93fe1991b97d) |
+| `MintTo` 1,000000 | 120 | 683,795 | [tx](https://testnet.bscscan.com/tx/0x8b2345723b03d041129a6247991d2406a7eb4889a49d0a626c6c4e0e239373be) |
+| `Transfer` 0,250000 de A para B | 76 | 660,003 | [tx](https://testnet.bscscan.com/tx/0x27b1e93fbc12e3c2737c7b7fcf377bcbd091be4548210a866208e536b326401d) |
 
 Saldos finais lidos do `SolanaStore`: supply 1.000.000, A 750.000, B 250.000 (unidades mínimas).
 
-O primeiro deploy da parte 2 (só sBPF v3) continua no ar em `deployments/bscTestnet-solana-v1.json`,
-com as transações abaixo:
+Associated Token Account publicado e usado (`deployments/bscTestnet-ata-demo.json`): a conta
+associada `D5eCbAWFkM5FPrSQ92h49MeqcgkZUsShg5xnS6C5Fjnf` da carteira
+`111111111117ULaZtgXFch8UfCLo5HpoYCEH3CDY` para o mint acima, criada pelo próprio programa.
+
+| O que | CU | Gás | Tx |
+|---|---|---|---|
+| Publicar o ATA: 5 pedaços + `finalizeProgram` + `verifyProgram` | | ~21 M + 9,37 M + 8,37 M | [verifyProgram](https://testnet.bscscan.com/tx/0x59daddd9fc374fce45a2b9fb2e38afe913ea025b91fa1757c5480294b79969b0) |
+| `Create`: 4 CPIs (3 no SPL Token, 1 no system program) | 14,980 | 11,490,959 | [tx](https://testnet.bscscan.com/tx/0x993f4df9ea07c1c6ff4560d22f38705dee9d4f8318de28fcec57a7a4a7347863) |
+| `CreateIdempotent` com a conta já criada | 5,937 | 3,805,992 | [tx](https://testnet.bscscan.com/tx/0xd1a719474aa3be06c4f8eccf0b5ad8052614e643e2bb8ad4fec2bd5f3c626a84) |
+| `Transfer` 0,100000 para a conta associada | 76 | 660,135 | [tx](https://testnet.bscscan.com/tx/0xa77fb408b3dedc30c2b4b13563df4fcab646bd20e7e0f53f27572e4eb88e5ac9) |
+
+Os deploys anteriores continuam no ar: v2 (SPL Token, sem CPI entre programas) em
+`deployments/bscTestnet-solana-v2.json` e `bscTestnet-token-demo-v1.json`; v1 (só sBPF v3) em
+`deployments/bscTestnet-solana-v1.json`, com as transações abaixo:
 
 | O que | Gás | Tx |
 |---|---|---|
@@ -105,7 +136,7 @@ com as transações abaixo:
 
 Reproduzir: `npx hardhat run scripts/deploy-solana.js --network bscTestnet` (com `REUSE=SolanaVM,…`
 reaproveita contratos já publicados com o mesmo bytecode), depois `scripts/token-demo.js` (SPL
-Token) e `scripts/solana-demo.js` (programas v3). O cliente mínimo, com chaves, PDAs e as
+Token), `scripts/ata-demo.js` (Associated Token Account) e `scripts/solana-demo.js` (programas v3). O cliente mínimo, com chaves, PDAs e as
 instruções do SPL Token, está em `scripts/solana-client.js`.
 
 ### Como usar o `SolanaStore`
@@ -117,30 +148,34 @@ instruções do SPL Token, está em `scripts/solana-client.js`.
 - **System program direto:** `transfer`, `createAccount`, `allocate`, `assign`.
 - **Programas:** `deployProgram(programId, elf)` publica numa transação (até ~50 KB por causa do
   limite de 16,7 M de gás por transação da BSC); acima disso, `writeProgram(programId, pedaço)`
-  várias vezes e `finalizeProgram(programId)` (só quem abriu o upload). O formato (v0 ou v3) é
-  detectado pelo cabeçalho do ELF. `invoke(programId, metas, data, cuLimit)` roda a
+  várias vezes e `finalizeProgram(programId)` (só quem abriu o upload); um programa v0 ainda
+  precisa de `verifyProgram(programId)`, porque carregar e verificar 100 KB não cabem numa
+  transação só. O formato (v0 ou v3) é detectado pelo cabeçalho do ELF. Para v0, guardar a imagem
+  pronta (`cacheImage` em `scripts/solana-client.js`) corta ~0,3 M de gás de cada instrução. `invoke(programId, metas, data, cuLimit)` roda a
   instrução e emite `Invoked` com CU, return data e o log; falha reverte com
   `ProgramFailed(err, custom, logs)` (err = índice do `InstructionError` + 1). `simulate(…, signer)`
   roda sem gravar.
 
 ### Limites da parte 2
 
-- **CPI só para o system program** (CreateAccount, Assign, Transfer, Allocate). O SPL Token roda
-  chamado direto, mas um programa sBPF ainda não chama outro (por exemplo o Associated Token
-  Account chamando o SPL Token): erro explícito. Ainda não testamos um programa Anchor completo.
+- **CPI** para o system program e para programas sBPF que estejam entre as contas da instrução
+  (como o SPL Token chamado pelo ATA). Loaders e precompiles via CPI dão o erro do agave; o loader
+  upgradeable via CPI ainda não existe aqui (erro explícito). Ainda não testamos um programa Anchor
+  completo.
 - **Sem taxas.** Lamports são wei. A sysvar Rent existe com os valores do agave (6960 lamports por
   byte), então os programas que exigem conta isenta de rent (como o SPL Token) funcionam igual.
-- **Programas v0 grandes custam ~1 M de gás por instrução** porque a imagem só leitura (106 KB no
-  SPL Token) é montada a cada execução; guardar a imagem pronta é a próxima otimização.
+- **Custo fixo de programas grandes.** Uma instrução do SPL Token custa ~0,56–0,68 M de gás quase
+  toda em custo fixo (ler a imagem de 110 KB e passá-la entre os contratos); cada CPI para outro
+  programa sBPF soma ~0,4–0,8 M. O interpretador gasta ~600 gás por CU em código Rust real.
 - **Quem publica.** Um programa é publicado por quem assina a chave dele, e a carteira que fez o
   deploy do `SolanaStore` (gênese) pode publicar em ids ainda livres, como `Tokenkeg…`. Na mainnet
   isso precisa de governança.
 - Syscalls não implementadas: secp256k1_recover, curvas (ed25519/ristretto/bn128), poseidon,
   blake3, sha512, big_mod_exp, epoch stake, sibling instructions, `sol_alloc_free_` (devolvem erro
   explícito).
-- **Gás:** ~200 k para uma instrução pequena, 0,5–0,8 M com contas e CPI simples, ~2,9 M para a CPI
-  do programa de 54 KB (o ELF é copiado entre os contratos). Publicar um programa custa ~280 gás por
-  byte (SSTORE2 + verificação).
+- **Gás:** ~200 k para uma instrução pequena, 0,5–0,8 M com contas e CPI simples, 11,5 M para
+  criar uma conta associada (4 CPIs). Publicar um programa custa ~280 gás por byte (SSTORE2 +
+  verificação), mais ~210 gás por byte para guardar a imagem pronta de um programa v0.
 - **Não auditado.** Testnet apenas. A mainnet (parte 3) usa carteira nova.
 
 ## Parte 1 na BSC testnet (chain 97)
@@ -426,10 +461,10 @@ done:
 
 ## Próximos passos
 
-0. Parte 2: CPI de um programa sBPF para outro (hoje só o system program; o próximo alvo é o
-   Associated Token Account chamando o SPL Token), guardar a imagem v0 pronta (hoje ~1 M de gás por
-   instrução do SPL Token), prova de fraude com memória em Merkle para a VM v3, menos gás na CPI
-   (não copiar o ELF entre contratos), exemplo Anchor.
+0. "Lance seu SPL na BSC": uma cara BEP-20 sobre o mesmo mint SPL (`balanceOf` lê a conta de
+   token, `transfer` roda o Transfer do SPL Token; um supply só, sem cofre), para o token ser
+   negociado na PancakeSwap. Depois: menos custo fixo por instrução (não copiar a imagem entre os
+   contratos), prova de fraude com memória em Merkle para a VM v3, exemplo Anchor.
 1. Verificar os contratos no BscScan (deploy na testnet feito; falta a verificação, ver acima).
 2. Gás: ~530 → meta 300–400 por instrução (despacho por tabela de saltos em Yul, menos `byte()` na
    decodificação, registradores r0..r3 em variáveis).

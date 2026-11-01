@@ -1,0 +1,50 @@
+{
+  "network": "bscTestnet",
+  "chainId": 97,
+  "deployer": "0x3D4c4eBDeeCd265FC744E10c445be9Df89361013",
+  "contracts": {
+    "SolanaVM": {
+      "address": "0xcD7EacC778218cF789D1cE5740a667c05d26610E",
+      "args": [],
+      "source": "contracts/src/SolanaVM.sol:SolanaVM",
+      "tx": "0x21afc81e6a7f57a067d0aa07be24e95d5416075b128043d1bcad17e69a96718c"
+    },
+    "SolanaCpi": {
+      "address": "0xF43dA7CE1a50a06a516dE09A1289f9Ff2e69055C",
+      "args": [],
+      "tx": "0xb969f3ea7f36f83cec05771d34b1ddf75e1f9d19abddfaf94ab8d27227ab5151",
+      "source": "contracts/src/SolanaCpi.sol:SolanaCpi"
+    },
+    "SolanaLog": {
+      "address": "0x4d57137b664c11524a1c8D8A27c1171405A86f24",
+      "args": [],
+      "tx": "0x625fa92ab0427a05143e26dc692cb209eb265a337022324756c318fe7a70c34e",
+      "source": "contracts/src/SolanaLog.sol:SolanaLog"
+    },
+    "SolanaRuntime": {
+      "address": "0x5DB7829346dDBc6Ef37c2E209EB467421311e579",
+      "args": [
+        "0xcD7EacC778218cF789D1cE5740a667c05d26610E",
+        "0xF43dA7CE1a50a06a516dE09A1289f9Ff2e69055C",
+        "0x4d57137b664c11524a1c8D8A27c1171405A86f24"
+      ],
+      "tx": "0x9c59da43004c23423c418c5e684740bfc646b998bee1ddd082c0e94d1c4b1cc3",
+      "source": "contracts/src/SolanaRuntime.sol:SolanaRuntime"
+    },
+    "SolanaLoader": {
+      "address": "0xCeA431eEB87d8ECe5255E7d2c7E119a9E4F8abc0",
+      "args": [],
+      "tx": "0x0dbba808d36da7f538ff0e7e3afe5dcc234bd74cde14830677b140419b86348d",
+      "source": "contracts/src/SolanaLoader.sol:SolanaLoader"
+    },
+    "SolanaStore": {
+      "address": "0xdc164254E5E50BbFE643D5CaA8C14BE9fA6971AA",
+      "args": [
+        "0x5DB7829346dDBc6Ef37c2E209EB467421311e579",
+        "0xCeA431eEB87d8ECe5255E7d2c7E119a9E4F8abc0"
+      ],
+      "tx": "0xa917978e1e63eacbb47b3462ae5ea5ca21a7a0c71c7fa2e099d0feaf36bc7359",
+      "source": "contracts/src/SolanaStore.sol:SolanaStore"
+    }
+  }
+}

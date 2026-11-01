@@ -1,0 +1,117 @@
+{
+  "store": "0x9570358F8D8E3938e0d7A6D67d749f064f75183b",
+  "steps": {
+    "writeProgram 0": {
+      "tx": "0x637812216a0339f02e6e8d7713fafb3e6ef8d1df1f874896c3858c571828bdf3",
+      "gas": 5307148
+    },
+    "writeProgram 1": {
+      "tx": "0x34e8d9eda2afb1c54f9be945e46047a8031a1b5a319776b95e72fe949254a812",
+      "gas": 5244748
+    },
+    "writeProgram 2": {
+      "tx": "0xcc5407ecffe4a4aa09db9a816255cba732faad3f0b1b27a76a7f024335cb6078",
+      "gas": 5240500
+    },
+    "writeProgram 3": {
+      "tx": "0x91304464e4c3fec883310734416d1ec053c1b56c3ba8545448754af560f11923",
+      "gas": 5262844
+    },
+    "writeProgram 4": {
+      "tx": "0xef009a0036d92e283a3cd2d572751e30d0c31ea5e1febfa4eeb30ce3b2bf7464",
+      "gas": 1490400
+    },
+    "finalizeProgram": {
+      "tx": "0x6b0b9def5666ffda76f655e010fc33787ea3420c2cb4a04c5d347d1bb7f74ab6",
+      "gas": 9367855
+    },
+    "verifyProgram": {
+      "tx": "0x59daddd9fc374fce45a2b9fb2e38afe913ea025b91fa1757c5480294b79969b0",
+      "gas": 8367424
+    },
+    "writeImage 0": {
+      "tx": "0xac9ecd2f4dff4a9a3bb51bc72f035a99e051c7af4f6e514823b898f80e994537",
+      "gas": 5268501
+    },
+    "writeImage 1": {
+      "tx": "0xcb62d6ab364f1c1a59de522e12aaa52098393b20ea589a88df8a74935b22e5aa",
+      "gas": 5244092
+    },
+    "writeImage 2": {
+      "tx": "0xb852d51ccd48c185a7ed8d502f87f8839fb4de2093ea612c5728b2fbb28c045b",
+      "gas": 5238320
+    },
+    "writeImage 3": {
+      "tx": "0xe31faddcb6dfca75411d5f78f413e61bb05ff21a4e1e0b2c01b8471bcefec625",
+      "gas": 5260628
+    },
+    "writeImage 4": {
+      "tx": "0x99ce409537c1b43c20baa4dee8bab1f41a609e5074b02ac512ad5f250a049ac2",
+      "gas": 288965
+    },
+    "finalizeImage": {
+      "tx": "0x60bd3a51dcb87a55120dcfc81bddcfe72d7d640159db348bc2f2e74be7a768a7",
+      "gas": 934818
+    },
+    "deposit (rent da conta de token)": {
+      "tx": "0xe927147e9508c2c33ab9d0d699f4384e7e619be76613bd324eb1f828898deebd",
+      "gas": 45998
+    },
+    "ATA Create": {
+      "tx": "0x993f4df9ea07c1c6ff4560d22f38705dee9d4f8318de28fcec57a7a4a7347863",
+      "gas": 11490959,
+      "cu": 14980,
+      "logs": [
+        "Program ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL invoke [1]",
+        "Program log: Create",
+        "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [2]",
+        "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 179 of 193109 compute units",
+        "Program return: TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA pQAAAAAAAAA=",
+        "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success",
+        "Program 11111111111111111111111111111111 invoke [2]",
+        "Program 11111111111111111111111111111111 success",
+        "Program log: Initialize the associated token account",
+        "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [2]",
+        "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 37 of 188020 compute units",
+        "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success",
+        "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [2]",
+        "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 233 of 185557 compute units",
+        "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success",
+        "Program ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL consumed 14980 of 200000 compute units",
+        "Program ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL success"
+      ]
+    },
+    "ATA CreateIdempotent (já existe)": {
+      "tx": "0xd1a719474aa3be06c4f8eccf0b5ad8052614e643e2bb8ad4fec2bd5f3c626a84",
+      "gas": 3805992,
+      "cu": 5937,
+      "logs": [
+        "Program ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL invoke [1]",
+        "Program log: CreateIdempotent",
+        "Program ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL consumed 5937 of 200000 compute units",
+        "Program ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL success"
+      ]
+    },
+    "Transfer 0.100000 A → conta associada": {
+      "tx": "0xa77fb408b3dedc30c2b4b13563df4fcab646bd20e7e0f53f27572e4eb88e5ac9",
+      "gas": 660135,
+      "cu": 76,
+      "logs": [
+        "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [1]",
+        "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 76 of 200000 compute units",
+        "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success"
+      ]
+    }
+  },
+  "keys": {
+    "payer": "0x0000000000000000000000643d4c4ebdeecd265fc744e10c445be9df89361013",
+    "mint": "0x0000000000000000000000653d4c4ebdeecd265fc744e10c445be9df89361013",
+    "wallet": "0x0000000000000000000000693d4c4ebdeecd265fc744e10c445be9df89361013",
+    "ata": "0xb37ca0d91bb801e55fd51da72eadec8d7592ed0e6d8d4fde981af24719d49350"
+  },
+  "result": {
+    "owner": "0x06ddf6e1d765a193d9cbe146ceeb79ac1cb485ed5f5b37913a8cf5857eff00a9",
+    "lamports": "2039280",
+    "amount": "100000"
+  }
+}

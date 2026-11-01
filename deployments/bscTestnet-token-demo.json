@@ -1,0 +1,107 @@
+{
+  "store": "0xdc164254E5E50BbFE643D5CaA8C14BE9fA6971AA",
+  "steps": {
+    "writeProgram 0": {
+      "tx": "0x8558037185571c1a168e65d6566209d89448e853b775ffe7dfb76f61edd90d46",
+      "gas": 5311626
+    },
+    "writeProgram 1": {
+      "tx": "0xa72ccfdbf5b9728c70042a0776c6ac9e5b297c2c0c5c80cb9b52420352a5f33f",
+      "gas": 5250465
+    },
+    "writeProgram 2": {
+      "tx": "0x56e7d23609b937640e9c90e4c56ad9ad62d3d8c8aa1f5ed86768eb4fd439fe1b",
+      "gas": 5248413
+    },
+    "writeProgram 3": {
+      "tx": "0x1cf0439500195d7e3990416492a4786dca4d0626e691ce441296f7da910ddef9",
+      "gas": 5242209
+    },
+    "writeProgram 4": {
+      "tx": "0x41d2d4ccdeb79e5f1b9e0db5dcf9763246eb2644f44e04a7c02e2ddbeeba408a",
+      "gas": 2254157
+    },
+    "finalizeProgram": {
+      "tx": "0x4489a09bba091ed28077b4d1949c09a6134331ce8e0e15d752e837cc79ae2265",
+      "gas": 12380757
+    },
+    "deposit (rent das 3 contas)": {
+      "tx": "0xbafedc862b04f408d8656ab982a874a977841e333c7cbf17ffff39348c9a4ed1",
+      "gas": 46064
+    },
+    "createAccount mint": {
+      "tx": "0x13282977e38ab2e873028186cf32fb3c437e163d7347668a5f59be5e03173874",
+      "gas": 107368
+    },
+    "createAccount conta A": {
+      "tx": "0xf912bb5846ba75a89fdfce0ae3d74f21ce2157c48571ddd591b931e7d13a939f",
+      "gas": 114241
+    },
+    "createAccount conta B": {
+      "tx": "0xe593d9c1523d90841c0e7f4b90fd7ccb2e7f380b495fe33e1c4248e1d5dbacb7",
+      "gas": 109441
+    },
+    "InitializeMint2 (6 casas)": {
+      "tx": "0x250a5ff314a437c167374ab69980c341de377b18a35adcc61dc587d95b8dba94",
+      "gas": 965688,
+      "cu": 202,
+      "logs": [
+        "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [1]",
+        "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 202 of 200000 compute units",
+        "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success"
+      ]
+    },
+    "InitializeAccount3 A": {
+      "tx": "0x0143ad12bb6d03bcecd2700f3c78eb04135c748515b26ca8f0077ea355bb517f",
+      "gas": 1087333,
+      "cu": 233,
+      "logs": [
+        "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [1]",
+        "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 233 of 200000 compute units",
+        "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success"
+      ]
+    },
+    "InitializeAccount3 B": {
+      "tx": "0x51223b2d4003e5e143fcb23a2634a53759a8709b650143080f7944f5282dbb63",
+      "gas": 1087333,
+      "cu": 233,
+      "logs": [
+        "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [1]",
+        "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 233 of 200000 compute units",
+        "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success"
+      ]
+    },
+    "MintTo 1.000000 → A": {
+      "tx": "0x9ecf274067a9d7e8573c46f99756587dfc75ae37c9c4a1a55dea04b8ba9508fa",
+      "gas": 1093019,
+      "cu": 120,
+      "logs": [
+        "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [1]",
+        "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 120 of 200000 compute units",
+        "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success"
+      ]
+    },
+    "Transfer 0.250000 A → B": {
+      "tx": "0x98377247e95bdd42cd6bc719dd81788468a5f82ed42f3e371e4f7174e74e29f9",
+      "gas": 1049334,
+      "cu": 76,
+      "logs": [
+        "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [1]",
+        "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 76 of 200000 compute units",
+        "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success"
+      ]
+    }
+  },
+  "keys": {
+    "payer": "0x0000000000000000000000643d4c4ebdeecd265fc744e10c445be9df89361013",
+    "mint": "0x0000000000000000000000653d4c4ebdeecd265fc744e10c445be9df89361013",
+    "accA": "0x0000000000000000000000663d4c4ebdeecd265fc744e10c445be9df89361013",
+    "holderB": "0x0000000000000000000000673d4c4ebdeecd265fc744e10c445be9df89361013",
+    "accB": "0x0000000000000000000000683d4c4ebdeecd265fc744e10c445be9df89361013"
+  },
+  "balances": {
+    "supply": "1000000",
+    "A": "750000",
+    "B": "250000"
+  }
+}

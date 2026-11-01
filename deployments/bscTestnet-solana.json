@@ -4,10 +4,10 @@
   "deployer": "0x3D4c4eBDeeCd265FC744E10c445be9Df89361013",
   "contracts": {
     "SolanaVM": {
-      "address": "0x6C3D928935CFe57eB7d028b630f9844d61EE9521",
+      "address": "0xcD7EacC778218cF789D1cE5740a667c05d26610E",
       "args": [],
-      "tx": "0x322a687f3d61668df505d08b99851eeedb2d3498428597b0460666bdce68aeeb",
-      "source": "contracts/src/SolanaVM.sol:SolanaVM"
+      "source": "contracts/src/SolanaVM.sol:SolanaVM",
+      "tx": "0x21afc81e6a7f57a067d0aa07be24e95d5416075b128043d1bcad17e69a96718c"
     },
     "SolanaCpi": {
       "address": "0xF43dA7CE1a50a06a516dE09A1289f9Ff2e69055C",
@@ -22,100 +22,29 @@
       "source": "contracts/src/SolanaLog.sol:SolanaLog"
     },
     "SolanaRuntime": {
-      "address": "0xaA30fC3A8bF539B9CD24319aD7Aa873dD7672856",
+      "address": "0x5DB7829346dDBc6Ef37c2E209EB467421311e579",
       "args": [
-        "0x6C3D928935CFe57eB7d028b630f9844d61EE9521",
+        "0xcD7EacC778218cF789D1cE5740a667c05d26610E",
         "0xF43dA7CE1a50a06a516dE09A1289f9Ff2e69055C",
         "0x4d57137b664c11524a1c8D8A27c1171405A86f24"
       ],
-      "tx": "0xfd5e77d2a455968eb4bfc47744f9999492c77744fc0beaa0049cd225c1c64a3c",
+      "tx": "0x9c59da43004c23423c418c5e684740bfc646b998bee1ddd082c0e94d1c4b1cc3",
       "source": "contracts/src/SolanaRuntime.sol:SolanaRuntime"
     },
+    "SolanaLoader": {
+      "address": "0xCeA431eEB87d8ECe5255E7d2c7E119a9E4F8abc0",
+      "args": [],
+      "tx": "0x0dbba808d36da7f538ff0e7e3afe5dcc234bd74cde14830677b140419b86348d",
+      "source": "contracts/src/SolanaLoader.sol:SolanaLoader"
+    },
     "SolanaStore": {
-      "address": "0xb101A464810C59c66E62B34367fB53193c022B76",
+      "address": "0xdc164254E5E50BbFE643D5CaA8C14BE9fA6971AA",
       "args": [
-        "0xaA30fC3A8bF539B9CD24319aD7Aa873dD7672856"
+        "0x5DB7829346dDBc6Ef37c2E209EB467421311e579",
+        "0xCeA431eEB87d8ECe5255E7d2c7E119a9E4F8abc0"
       ],
-      "tx": "0x174c6d1c1c8b4c72218bec089f40563a3e5c879273dea9688bf1dfb3de37898f",
+      "tx": "0xa917978e1e63eacbb47b3462ae5ea5ca21a7a0c71c7fa2e099d0feaf36bc7359",
       "source": "contracts/src/SolanaStore.sol:SolanaStore"
     }
-  },
-  "demo": {
-    "deploy hello": {
-      "tx": "0x178f051855e4b20144a058ef0899cc5b96f5a701791d467dae92c0bc3199a344",
-      "gas": 2503603
-    },
-    "deploy transfer": {
-      "tx": "0x7564535f330b832203ad3a43b93508f6742f8bb4c25541dae4d13d4952eb04c8",
-      "gas": 15398950
-    },
-    "deploy vault": {
-      "tx": "0xe38a4d1c1640f2a97b70604a1758f83b0c3bec3a934c18800cde194b3073ca9a",
-      "gas": 336916
-    },
-    "invoke hello": {
-      "tx": "0x9dd25127ebe1838e76a6c2ffe4da4d2be4e137822fd426548c11ec6008b5909b",
-      "gas": 217997,
-      "logs": [
-        "Program 111111111115RPYinzq2LqbEcQ2SkYcuvQUsDnJ invoke [1]",
-        "Program log: Hello, Solana!",
-        "Program 111111111115RPYinzq2LqbEcQ2SkYcuvQUsDnJ consumed 136 of 200000 compute units",
-        "Program 111111111115RPYinzq2LqbEcQ2SkYcuvQUsDnJ success"
-      ]
-    },
-    "deposit 10000 lamports": {
-      "tx": "0x7f48dec374cd7383b6d5e1b68ac8db3558331d63d1f919c6e1d7e2362a1b6b06",
-      "gas": 46042
-    },
-    "invoke transfer (CPI)": {
-      "tx": "0x97c6bfca5aebced830530601e1139d2ca1b96cd8b6a303a16b41c6369207fdf6",
-      "gas": 2870110,
-      "logs": [
-        "Program 111111111118zFHg6nJ2fzgC4Nsx6vXSPKvQYjC invoke [1]",
-        "Program 11111111111111111111111111111111 invoke [2]",
-        "Program 11111111111111111111111111111111 success",
-        "Program 111111111118zFHg6nJ2fzgC4Nsx6vXSPKvQYjC consumed 2277 of 200000 compute units",
-        "Program 111111111118zFHg6nJ2fzgC4Nsx6vXSPKvQYjC success"
-      ]
-    },
-    "invoke try_find_program_address": {
-      "tx": "0xe8dce6929b6d96753d2460538095ab7787a25a5cecf5e6f37544f02653dfec3c",
-      "gas": 267364,
-      "logs": [
-        "Program 11111111111CZ72dQZm319m9WMjTTJRxrFMwsg6 invoke [1]",
-        "Program log: 0x0, 0xff, 0x0, 0x0, 0x0",
-        "Program log: 22K19YL96B7QMhesnCKB5PTazR1aZQnNRiy4Sf7ZF28R",
-        "Program 11111111111CZ72dQZm319m9WMjTTJRxrFMwsg6 consumed 1744 of 200000 compute units",
-        "Program 11111111111CZ72dQZm319m9WMjTTJRxrFMwsg6 success"
-      ]
-    },
-    "programs": {
-      "hello": "0x0000000000000000000000013d4c4ebdeecd265fc744e10c445be9df89361013",
-      "transfer": "0x0000000000000000000000023d4c4ebdeecd265fc744e10c445be9df89361013",
-      "vault": "0x0000000000000000000000033d4c4ebdeecd265fc744e10c445be9df89361013"
-    },
-    "vault": {
-      "address": "0x0f319f8ead4278feb9bad00848948de46b7ad0aecb35a13c8db878aac69ebbc2",
-      "bump": 255
-    },
-    "deposit 5000 no cofre PDA": {
-      "tx": "0x1c11ceeb0465f01744f5cdd6d1b78adb1086a0eb3da7787f2d778c5bdbdb5e49",
-      "gas": 46174
-    },
-    "invoke cofre → friend (CPI assinada)": {
-      "tx": "0x2084d7f034a208de324e85b4b6936ee37cfa66d6429f6407b0a927f2522d562a",
-      "gas": 712776,
-      "logs": [
-        "Program 11111111111CZ72dQZm319m9WMjTTJRxrFMwsg6 invoke [1]",
-        "Program 11111111111111111111111111111111 invoke [2]",
-        "Program 11111111111111111111111111111111 success",
-        "Program log: 0x0, 0xeb6, 0x0, 0x0, 0x0",
-        "Program 11111111111CZ72dQZm319m9WMjTTJRxrFMwsg6 consumed 1238 of 200000 compute units",
-        "Program 11111111111CZ72dQZm319m9WMjTTJRxrFMwsg6 success"
-      ]
-    },
-    "saldo payer": "7500",
-    "saldo friend": "3734",
-    "saldo vault": "3766"
   }
 }

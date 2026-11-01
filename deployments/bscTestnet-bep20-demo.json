@@ -48,6 +48,14 @@
     "venda (500 tokens → tBNB)": {
       "tx": "0x038d06b049915f2bc772ea954169dc5a8092e5a0028387b7310611171e3bb4f9",
       "gas": 760498
+    },
+    "Burn 10.000 (SPL Token)": {
+      "tx": "0x1884f5061a3dda9f93610db613a990d40aa60de98dbbba190f98d3f87c66058a",
+      "gas": 680642
+    },
+    "MintTo 5.000 (SPL Token)": {
+      "tx": "0xd4873bedccac73055c8b41d45a7b2c9710f47105b30b52bd67d3285b98f45909",
+      "gas": 667089
     }
   },
   "keys": {
@@ -62,5 +70,19 @@
     "me": "907574377159",
     "other": "1000000000",
     "pair": "91425622841"
+  },
+  "supplyChanges": {
+    "antes": {
+      "totalSupply": "1000000000000",
+      "me": "907574377159"
+    },
+    "depoisBurn": {
+      "totalSupply": "990000000000",
+      "me": "897574377159"
+    },
+    "depoisMint": {
+      "totalSupply": "995000000000",
+      "me": "902574377159"
+    }
   }
 }

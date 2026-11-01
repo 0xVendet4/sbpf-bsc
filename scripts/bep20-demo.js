@@ -1,5 +1,6 @@
 // "Lance seu SPL na BSC": cria um mint no SPL Token (que roda no SolanaStore), publica a cara BEP-20
-// dele (SplBep20), cunha pelo SPL, abre um pool na PancakeSwap v2 e faz uma compra e uma venda.
+// dele (SplBep20), cunha pelo SPL, abre um pool na PancakeSwap v2, faz uma compra e uma venda, e
+// depois queima e cunha pelo SPL Token para mostrar o totalSupply/balanceOf do BEP-20 mudando junto.
 //   npx hardhat run scripts/bep20-demo.js --network bscTestnet   (depois do token-demo.js)
 // Retomável: cada passo fica em deployments/<rede>-bep20-demo.json.
 const hre = require("hardhat");
@@ -94,6 +95,17 @@ async function main() {
     pair: (await bep.balanceOf(demo.pair)).toString(),
   };
   console.log("BEP-20", demo.bep20, "par", demo.pair, demo.balances);
+  save();
+
+  // 6. burn e mint pelo SPL Token (o BEP-20 não tem mint/burn próprios: ele só reflete o mint SPL)
+  const snap = async () => ({ totalSupply: (await bep.totalSupply()).toString(), me: (await bep.balanceOf(me.address)).toString() });
+  demo.supplyChanges = demo.supplyChanges || {};
+  if (!demo.steps["Burn 10.000 (SPL Token)"]) demo.supplyChanges.antes = await snap();
+  await send("Burn 10.000 (SPL Token)", (o) => store.invoke(TOKEN_PROGRAM, [w(acc), w(mint), s(payer)], token.burn(10_000_000_000n), 0, o));
+  if (!demo.supplyChanges.depoisBurn) demo.supplyChanges.depoisBurn = await snap();
+  await send("MintTo 5.000 (SPL Token)", (o) => store.invoke(TOKEN_PROGRAM, [w(mint), w(acc), s(payer)], token.mintTo(5_000_000_000n), 0, o));
+  if (!demo.supplyChanges.depoisMint) demo.supplyChanges.depoisMint = await snap();
+  console.log("BEP-20 lido do SPL", demo.supplyChanges);
   save();
   console.log("gravado", file);
 }

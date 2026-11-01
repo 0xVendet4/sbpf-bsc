@@ -131,9 +131,14 @@ par na PancakeSwap [`0x476BFD8350761ac09FC3Fa046430ff5544b3B2bF`](https://testne
 | `addLiquidityETH` na PancakeSwap: 100.000 tokens + 0,01 tBNB (cria o par) | 3,549,377 | [tx](https://testnet.bscscan.com/tx/0xb254d85b6fc013e4f98c721043cd7e2bb37653511e0c1940335ec13047fae920) |
 | Compra: 0,001 tBNB → token | 783,724 | [tx](https://testnet.bscscan.com/tx/0x43071dd9a8d74bd131b0a615a3dced441268a27aa2d7af67e5e835fee3a28aad) |
 | Venda: 500 tokens → tBNB | 760,498 | [tx](https://testnet.bscscan.com/tx/0x038d06b049915f2bc772ea954169dc5a8092e5a0028387b7310611171e3bb4f9) |
+| `Burn` de 10.000 pelo SPL Token: `totalSupply` do BEP-20 cai para 990.000 | 680,642 | [tx](https://testnet.bscscan.com/tx/0x1884f5061a3dda9f93610db613a990d40aa60de98dbbba190f98d3f87c66058a) |
+| `MintTo` de 5.000 pelo SPL Token: `totalSupply` do BEP-20 sobe para 995.000 | 667,089 | [tx](https://testnet.bscscan.com/tx/0xd4873bedccac73055c8b41d45a7b2c9710f47105b30b52bd67d3285b98f45909) |
 
-Saldos finais lidos do mint e das contas SPL: supply 1.000.000, carteira 907.574,377159, endereço
-novo 1.000, par 91.425,622841 (a soma fecha com o supply). Um transfer custa ~0,67–0,76 M de gás
+Depois dos swaps, os saldos lidos do mint e das contas SPL eram: supply 1.000.000, carteira
+907.574,377159, endereço novo 1.000, par 91.425,622841 (a soma fecha com o supply). O `SplBep20`
+não tem mint nem burn próprios: quem cunha e queima é o SPL Token, com a autoridade do mint, e o
+BEP-20 só reflete (as duas últimas linhas da tabela). Como essas mudanças não passam pelo
+contrato BEP-20, elas não geram evento `Transfer` dele. Um transfer custa ~0,67–0,76 M de gás
 (≈ 0,00008 BNB a 0,1 gwei), quase tudo o custo fixo de rodar o SPL Token.
 
 ### Na BSC testnet (deploy de 2026-11-01, v4: `SolanaStore` com `invokeAs` e imagem v0 guardada)

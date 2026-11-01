@@ -136,24 +136,32 @@ contract SolanaStore {
             chunks_[programId].push(_store(elf_[off:off + n]));
         }
         elfLength[programId] = elf_.length;
-        _finalize(programId);
+        if (_finalize(programId)) _verifyV0(programId);
     }
 
     /// @notice Programa grande (o limite de gás por transação da BSC é 16,7M): manda o ELF em pedaços
     ///         de até 24.575 bytes, na ordem, e depois chama `finalizeProgram`.
     function writeProgram(bytes32 programId, bytes calldata chunk) external {
         if (uploader[programId] == address(0)) _open(programId);
-        else if (uploader[programId] != msg.sender) revert UploadNotOpen(programId);
+        else if (uploader[programId] != msg.sender || layout_[programId] != address(0)) revert UploadNotOpen(programId);
         if (chunk.length == 0 || chunk.length > CHUNK) revert ChunkTooBig();
         chunks_[programId].push(_store(chunk));
         elfLength[programId] += chunk.length;
     }
 
     /// @notice Carrega, verifica e ativa um programa enviado com `writeProgram` (como o loader do
-    ///         Solana faz uma vez, ao publicar). ELF v0: as relocações do SolanaLoader ficam guardadas.
+    ///         Solana faz uma vez, ao publicar). ELF v0: só carrega (as relocações do SolanaLoader ficam
+    ///         guardadas); o verificador vai numa segunda transação, `verifyProgram` (os dois juntos
+    ///         passam do limite de gás por transação da BSC num programa de 100 KB).
     function finalizeProgram(bytes32 programId) external {
-        if (uploader[programId] != msg.sender) revert UploadNotOpen(programId);
+        if (uploader[programId] != msg.sender || layout_[programId] != address(0)) revert UploadNotOpen(programId);
         _finalize(programId);
+    }
+
+    /// @notice Segunda etapa de um programa v0 publicado em pedaços: verifica a imagem e ativa.
+    function verifyProgram(bytes32 programId) external {
+        if (uploader[programId] != msg.sender || layout_[programId] == address(0)) revert UploadNotOpen(programId);
+        _verifyV0(programId);
     }
 
     /// @dev Quem pode publicar em `programId`: o dono da chave ou a gênese; a conta tem de estar livre.
@@ -165,23 +173,29 @@ contract SolanaStore {
         uploader[programId] = msg.sender;
     }
 
-    function _finalize(bytes32 programId) private {
+    /// @dev v3: verifica e ativa. v0 (e_flags = 0): guarda as relocações do SolanaLoader e devolve
+    ///      true (falta `_verifyV0`).
+    function _finalize(bytes32 programId) private returns (bool v0) {
         bytes memory e = elf(programId);
-        bytes32 owner = BPF_LOADER;
         if (e.length >= 64 && bytes4(e) == 0x7f454c46 && e[48] == 0 && e[49] == 0 && e[50] == 0 && e[51] == 0) {
-            // sBPF v0 (e_flags = 0): relocações aplicadas pelo SolanaLoader, imagem verificada
-            bytes memory layout = loader.load(e);
-            if (!vm.verifyElf(SolanaImage.build(e, layout))) revert InvalidElf();
-            layout_[programId] = _storeMem(layout);
-            owner = BPF_LOADER_2;
-        } else if (!vm.verifyElf(e)) {
-            revert InvalidElf(); // carregador + verificador, uma vez só (como no Solana)
+            layout_[programId] = _storeMem(loader.load(e));
+            return true;
         }
+        if (!vm.verifyElf(e)) revert InvalidElf(); // carregador + verificador, uma vez só (como no Solana)
+        _activate(programId, BPF_LOADER);
+    }
+
+    function _verifyV0(bytes32 programId) private {
+        if (!vm.verifyElf(program(programId))) revert InvalidElf();
+        _activate(programId, BPF_LOADER_2);
+    }
+
+    function _activate(bytes32 programId, bytes32 owner) private {
         Stored storage s = accounts_[programId];
         s.owner = owner;
         s.executable = true;
         delete uploader[programId];
-        emit ProgramDeployed(programId, msg.sender, e.length);
+        emit ProgramDeployed(programId, msg.sender, elfLength[programId]);
     }
 
     /// @notice Guarda a imagem v0 pronta (`program(programId)`, lida por eth_call) em pedaços, para

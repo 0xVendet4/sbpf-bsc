@@ -1,5 +1,5 @@
 // SPL Token na rede: publica o programa oficial (sBPF v0, Tokenkeg...) no SolanaStore em pedaços,
-// cria um mint e duas contas de token pelo system program e manda InitializeMint2,
+// guarda a imagem pronta, cria um mint e duas contas de token pelo system program e manda InitializeMint2,
 // InitializeAccount3, MintTo e Transfer, uma transação cada.
 //   npx hardhat run scripts/token-demo.js --network bscTestnet
 // Retomável: cada passo fica em deployments/<rede>-token-demo.json.
@@ -43,12 +43,21 @@ async function main() {
     save();
   };
 
-  // 1. o programa: pedaços de 24.575 bytes + finalizeProgram (SolanaLoader + verificador on-chain)
+  // 1. o programa: pedaços de 24.575 bytes + finalizeProgram (SolanaLoader) + verifyProgram (verificador on-chain)
   if (!(await store.account(TOKEN_PROGRAM)).executable) {
     for (let i = 0, off = 0; off < elf.length; i++, off += CHUNK) {
       await send(`writeProgram ${i}`, (o) => store.writeProgram(TOKEN_PROGRAM, elf.slice(off, off + CHUNK), o));
     }
     await send("finalizeProgram", (o) => store.finalizeProgram(TOKEN_PROGRAM, o));
+    await send("verifyProgram", (o) => store.verifyProgram(TOKEN_PROGRAM, o));
+  }
+  // 1b. a imagem pronta (lida por eth_call, conferida on-chain): cada instrução deixa de remontá-la
+  if (!(await store.imageReady(TOKEN_PROGRAM))) {
+    const img = ethers.getBytes(await store.program(TOKEN_PROGRAM));
+    for (let i = 0, off = 0; off < img.length; i++, off += CHUNK) {
+      await send(`writeImage ${i}`, (o) => store.writeImage(TOKEN_PROGRAM, i, img.slice(off, off + CHUNK), o));
+    }
+    await send("finalizeImage", (o) => store.finalizeImage(TOKEN_PROGRAM, o));
   }
 
   // 2. contas: um pagador com lamports (lastreados em wei), o mint e duas contas de token

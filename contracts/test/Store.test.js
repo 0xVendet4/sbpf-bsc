@@ -224,13 +224,21 @@ describe("SolanaStore — programas e contas Solana na EVM, instruções por tra
     }
     await expect(store.connect(alice).finalizeProgram(TOKEN_PROGRAM)).to.be.revertedWithCustomError(store, "UploadNotOpen");
     const fin = await (await store.connect(dev).finalizeProgram(TOKEN_PROGRAM)).wait();
+    // v0: o carregador numa transação, o verificador noutra (juntos passam dos 16,7M num ELF de 100 KB)
+    expect((await store.account(TOKEN_PROGRAM)).executable).to.equal(false);
+    await expect(store.connect(dev).finalizeProgram(TOKEN_PROGRAM)).to.be.revertedWithCustomError(store, "UploadNotOpen");
+    await expect(store.connect(dev).writeProgram(TOKEN_PROGRAM, bytes.slice(0, 100))).to.be.revertedWithCustomError(store, "UploadNotOpen");
+    await expect(store.connect(alice).verifyProgram(TOKEN_PROGRAM)).to.be.revertedWithCustomError(store, "UploadNotOpen");
+    const ver = await (await store.connect(dev).verifyProgram(TOKEN_PROGRAM)).wait();
+    await expect(store.connect(dev).verifyProgram(TOKEN_PROGRAM)).to.be.revertedWithCustomError(store, "UploadNotOpen");
     gas.tokenChunks = chunkGas;
     gas.tokenFinalize = Number(fin.gasUsed);
+    gas.tokenVerify = Number(ver.gasUsed);
     const prog = await store.account(TOKEN_PROGRAM);
     expect(prog.executable).to.equal(true);
     expect(prog.owner).to.equal(await store.BPF_LOADER_2());
     expect(await store.elf(TOKEN_PROGRAM)).to.equal(tokenElf);
-    expect(gas.tokenFinalize < 16_000_000).to.equal(true);
+    expect(gas.tokenFinalize < 16_000_000 && gas.tokenVerify < 16_000_000).to.equal(true);
 
     // contas criadas pelo system program com o dono Tokenkeg (como um cliente Solana faria)
     const payer = keyFor(alice.address, 0);
@@ -275,7 +283,9 @@ describe("SolanaStore — programas e contas Solana na EVM, instruções por tra
   it("Associated Token Account (sBPF v0) chamando o SPL Token por CPI: cria a conta de token do Bob", async () => {
     const bytes = ethers.getBytes(ataElf);
     for (let off = 0; off < bytes.length; off += 24575) await (await store.connect(dev).writeProgram(ATA_PROGRAM, bytes.slice(off, off + 24575))).wait();
-    await (await store.connect(dev).finalizeProgram(ATA_PROGRAM)).wait();
+    gas.ataFinalize = Number((await (await store.connect(dev).finalizeProgram(ATA_PROGRAM)).wait()).gasUsed);
+    gas.ataVerify = Number((await (await store.connect(dev).verifyProgram(ATA_PROGRAM)).wait()).gasUsed);
+    expect(gas.ataFinalize < 16_000_000 && gas.ataVerify < 16_000_000).to.equal(true);
     await cacheImage(store, dev, ATA_PROGRAM);
     const payer = keyFor(alice.address, 0);
     const mint = keyFor(alice.address, 30);
@@ -303,5 +313,5 @@ describe("SolanaStore — programas e contas Solana na EVM, instruções por tra
     expect(tokenAmount((await store.account(addr)).data)).to.equal(1_000n);
   });
 
-  after(() => console.log(`      gás: deploy do programa ${gas.deploy}, hello ${gas.hello}, escrita na conta ${gas.write}, burn ${gas.burn}, CPI ${gas.cpi}, CPI assinada por PDA ${gas.pdaCpi}\n      SPL Token: pedaços ${gas.tokenChunks}, finalizeProgram ${gas.tokenFinalize}, InitializeMint2 ${gas.initMint}, MintTo ${gas.mintTo}, Transfer ${gas.transfer} (com a imagem guardada: ${gas.transferCached}; guardar a imagem: ${gas.cacheImage})\n      ATA: Create ${gas.ataCreate}, CreateIdempotent (já existe) ${gas.ataIdempotent}`));
+  after(() => console.log(`      gás: deploy do programa ${gas.deploy}, hello ${gas.hello}, escrita na conta ${gas.write}, burn ${gas.burn}, CPI ${gas.cpi}, CPI assinada por PDA ${gas.pdaCpi}\n      SPL Token: pedaços ${gas.tokenChunks}, finalizeProgram ${gas.tokenFinalize}, verifyProgram ${gas.tokenVerify}, InitializeMint2 ${gas.initMint}, MintTo ${gas.mintTo}, Transfer ${gas.transfer} (com a imagem guardada: ${gas.transferCached}; guardar a imagem: ${gas.cacheImage})\n      ATA: finalizeProgram ${gas.ataFinalize}, verifyProgram ${gas.ataVerify}, Create ${gas.ataCreate}, CreateIdempotent (já existe) ${gas.ataIdempotent}`));
 });

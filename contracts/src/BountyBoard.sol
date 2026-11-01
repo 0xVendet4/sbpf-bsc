@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {SbpfVM} from "./SbpfVM.sol";
+import {BlockSeed} from "./BlockSeed.sol";
 import {GolfToken} from "./GolfToken.sol";
 
 /// @title BountyBoard — bounties de código sBPF otimizado, julgados on-chain
@@ -72,6 +73,7 @@ contract BountyBoard {
     error BadReveal();
     error ProgramTooLarge();
     error ProgramRejected(uint256 inputIndex, SbpfVM.Status status, uint64 r0, uint64 expected);
+    error SeedUnavailable();
 
     constructor(SbpfVM vm_, GolfToken token_, uint256 bountyFee) {
         vm = vm_;
@@ -90,7 +92,7 @@ contract BountyBoard {
         bytes[] edgeInputs; // casos de borda fixos (até MAX_EDGE_INPUTS)
         string spec; // descrição da rotina
         uint64 commitBlocks;
-        uint64 revealBlocks; // <= 250 (blockhash precisa existir no primeiro reveal)
+        uint64 revealBlocks; // <= 8000 (o hash do bloco commitEnd precisa existir no primeiro reveal; EIP-2935)
     }
 
     /// @notice Publica um bounty. Transfere `reward` de `rewardToken` para o contrato e queima
@@ -98,7 +100,7 @@ contract BountyBoard {
     function post(PostParams calldata p) external returns (uint256 id) {
         if (
             p.reward == 0 || p.maxCu == 0 || p.inputLen > MAX_INPUT_LEN || p.edgeInputs.length > MAX_EDGE_INPUTS
-                || p.commitBlocks == 0 || p.revealBlocks == 0 || p.revealBlocks > 250
+                || p.commitBlocks == 0 || p.revealBlocks == 0 || p.revealBlocks > BlockSeed.MAX_REVEAL_BLOCKS
                 || p.refProgram.length > MAX_PROGRAM_BYTES
         ) revert BadParams();
         if (!vm.verify(p.refProgram)) revert ReferenceRejected();
@@ -149,7 +151,10 @@ contract BountyBoard {
         if (keccak256(abi.encode(msg.sender, id, keccak256(program), salt)) != c.hash) revert BadReveal();
         if (program.length > MAX_PROGRAM_BYTES) revert ProgramTooLarge();
         c.revealed = true;
-        if (b.seed == bytes32(0)) b.seed = blockhash(b.commitEnd);
+        if (b.seed == bytes32(0)) {
+            b.seed = BlockSeed.hashOf(b.commitEnd);
+            if (b.seed == bytes32(0)) revert SeedUnavailable();
+        }
 
         totalCu = judge(id, b.seed, program);
 

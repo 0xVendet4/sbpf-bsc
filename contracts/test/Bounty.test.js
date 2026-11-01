@@ -33,7 +33,7 @@ describe("BountyBoard", function () {
 
   it("postar queima a taxa em GOLF e deposita o prêmio em qualquer ERC-20", async () => {
     await expect(board.connect(P).post(postParams({ refProgram: WRONG.slice(0, 10) }))).to.be.revertedWithCustomError(board, "ReferenceRejected");
-    await expect(board.connect(P).post(postParams({ revealBlocks: 300 }))).to.be.revertedWithCustomError(board, "BadParams");
+    await expect(board.connect(P).post(postParams({ revealBlocks: 8001 }))).to.be.revertedWithCustomError(board, "BadParams");
     const supply = await token.totalSupply();
     await expect(board.connect(P).post(postParams())).to.emit(board, "Posted").withArgs(0, P.address, await usd.getAddress(), REWARD, "floor(sqrt(x)) para u64");
     expect(await token.totalSupply()).to.equal(supply - FEE);

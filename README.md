@@ -17,21 +17,47 @@ programs/*.s ──assembler do solana-sbpf──► bytecode ──► referenc
 
 ## Na BSC testnet (chain 97)
 
-Deploy feito em 2026-11-01 por `0x3D4c4eBDeeCd265FC744E10c445be9Df89361013` (custo total ≈ 0,0007 tBNB
-a 0,1 gwei). Endereços, argumentos do construtor e versão do compilador em
-[`deployments/bscTestnet.json`](deployments/bscTestnet.json).
+Segundo deploy, 2026-11-01, por `0x3D4c4eBDeeCd265FC744E10c445be9Df89361013` (≈ 0,0007 tBNB a
+0,1 gwei). Endereços, argumentos do construtor e versão do compilador em
+[`deployments/bscTestnet.json`](deployments/bscTestnet.json); o primeiro deploy (janelas de 400/200
+blocos, hoje expiradas) está em `deployments/bscTestnet-v1.json`.
 
 | Contrato | Endereço |
 |---|---|
-| `SbpfVM` | [`0x5B6B8f64280F5f2536d87991404a7Bc4a542cFcF`](https://testnet.bscscan.com/address/0x5B6B8f64280F5f2536d87991404a7Bc4a542cFcF) |
-| `GolfToken` (GOLF) | [`0x504DA7102aB8D80ce230e4d9B22a85EDc4A1E86a`](https://testnet.bscscan.com/address/0x504DA7102aB8D80ce230e4d9B22a85EDc4A1E86a) |
-| `SbpfGolf` | [`0x49d408c048e7C1779b74afe6D28E7071FB1FAf8C`](https://testnet.bscscan.com/address/0x49d408c048e7C1779b74afe6D28E7071FB1FAf8C) |
-| `BountyBoard` | [`0x825d52e6315a1A3D1775CF278Da6E7741bF61640`](https://testnet.bscscan.com/address/0x825d52e6315a1A3D1775CF278Da6E7741bF61640) |
+| `SbpfVM` | [`0xD9C7AF9165B190AdD2264853f2f6b4Aa4Bd6649F`](https://testnet.bscscan.com/address/0xD9C7AF9165B190AdD2264853f2f6b4Aa4Bd6649F) |
+| `GolfToken` (GOLF) | [`0xa5aA84562DfF099f8ba8F4FcD06Eb584de006dF8`](https://testnet.bscscan.com/address/0xa5aA84562DfF099f8ba8F4FcD06Eb584de006dF8) |
+| `SbpfGolf` | [`0xb12C68f3e567A3eCEEc7eaf232d9f8CcfEc368ae`](https://testnet.bscscan.com/address/0xb12C68f3e567A3eCEEc7eaf232d9f8CcfEc368ae) |
+| `BountyBoard` | [`0x69D156d4523B68b09BEB02881f487949Ae6B7f3F`](https://testnet.bscscan.com/address/0x69D156d4523B68b09BEB02881f487949Ae6B7f3F) |
 
-Parâmetros: taxa de entrada 10 GOLF (50% queimada), 100 rodadas grátis, commit 400 blocos, reveal
-200 blocos, taxa de bounty 5 GOLF. `GolfToken.minter` = `SbpfGolf`; `SbpfGolf.bountyBoard` =
-`BountyBoard`. Rodada 1: tarefa 1 (popcount). O bytecode on-chain confere com os artefatos locais
-(tamanho e hash de metadados).
+Parâmetros: taxa de entrada 10 GOLF (50% queimada), 100 rodadas grátis, commit 8000 blocos (~1 h a
+0,45 s/bloco), reveal 4000 blocos (~30 min), taxa de bounty 5 GOLF. `GolfToken.minter` =
+`SbpfGolf`; `SbpfGolf.bountyBoard` = `BountyBoard`. O bytecode on-chain confere com os artefatos
+locais (tamanho e hash de metadados).
+
+No primeiro deploy uma rodada inteira foi jogada on-chain (rodada 2, isqrt, 904 CU, reveal com 721k
+gas, 100 GOLF mintados: [reveal](https://testnet.bscscan.com/tx/0x391fe4442540be47581f0699307fcf8d30c5c41dbd1ea8e92764539cf090b140),
+[finalize](https://testnet.bscscan.com/tx/0x1c2fc1c85e77849f00265f837586abfdc0afbe1a84245bf5894ed983ea80554f)).
+
+### Seed além de 256 blocos (EIP-2935)
+
+A seed da rodada é o hash do último bloco de commit. `blockhash` só enxerga 256 blocos (~2 min na
+BSC), o que obrigava janelas de reveal de minutos. `BlockSeed.sol` lê o contrato de histórico da
+EIP-2935 (`0x0000F908…2935`, ativo na BSC desde o Pascal), que guarda 8191 hashes (~1 h), e o reveal
+pode ir até 8000 blocos. Se mesmo assim o hash não existir, o reveal reverte com `SeedUnavailable`
+em vez de aceitar seed zero. Nos testes o contrato de histórico é um mock instalado com
+`hardhat_setCode` (`contracts/test/Seed.test.js`).
+
+### Página para jogar (`web/`)
+
+`web/index.html` é uma página estática (sem build) para jogar pela MetaMask: mostra a rodada,
+monta o assembly no navegador, testa o programa de graça (`judge` via `eth_call`), faz commit e
+reveal, fecha a rodada e lista o placar pelos eventos. O assembler em JS (`web/sbpf-asm.js`) é um
+port do assembler do `solana-sbpf` 0.26.0 e é validado contra ele: `reference/` grava em
+`fixtures/asm.json` tudo o que montou (programas de teste, sintaxe difícil, casos de erro e os
+programas aleatórios desmontados pelo disassembler oficial), e `contracts/test/Asm.test.js` exige
+os mesmos bytes e os mesmos erros (2060/2060). Para servir localmente:
+`cd web && python3 -m http.server 8000`. O salt do commit fica no `localStorage` do navegador, com
+um backup copiável na página.
 
 ## Números reais
 
@@ -91,7 +117,8 @@ CU Golf (teste local): reveal de `popcount` em 4 inputs = 1 552 CU, **~983 k gas
 | `contracts/src/GolfToken.sol` | ERC-20 (OpenZeppelin) com `minter` único (o SbpfGolf) e teto de 21 M. |
 | `contracts/src/BountyBoard.sol` | Bounties de código otimizado, pagos em qualquer ERC-20, julgados on-chain contra um programa de referência. |
 | `contracts/test/` | `Differential` (lê `fixtures/` e compara tudo), `Golf`, `Bounty`. |
-| `scripts/` | `gas.js` (benchmark), `deploy.js`, `play.js` (joga uma rodada). |
+| `scripts/` | `gas.js` (benchmark), `deploy.js`, `verify.js`, `play.js` (joga uma rodada). |
+| `web/` | Página para jogar (MetaMask) e o assembler sBPF em JS. |
 
 ### Interface da VM
 
@@ -181,7 +208,7 @@ cd ..
 
 # 2. Contratos e testes (Node 22)
 npm install                                # .npmrc liga legacy-peer-deps (conflito de peer do hardhat-chai-matchers)
-npm test                                   # 15 testes: diferencial (5 conjuntos), golf, bounty
+npm test                                   # 20 testes: diferencial (5 conjuntos), golf, bounty, seed EIP-2935, assembler JS
 npm run gas                                # tabela de gás
 
 # Sem acesso a binaries.soliditylang.org? Use o solc-js do npm (mesma versão 0.8.28):

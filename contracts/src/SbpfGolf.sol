@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 import {SbpfVM} from "./SbpfVM.sol";
 import {Tasks} from "./Tasks.sol";
 import {GolfToken} from "./GolfToken.sol";
+import {BlockSeed} from "./BlockSeed.sol";
 
 interface IBountyBoard {
     function referenceSpec(uint256 id) external view returns (bool active, bytes memory program, uint64 maxCu, uint32 inputLen);
@@ -13,7 +14,8 @@ interface IBountyBoard {
 /// @notice Rodadas de commit-reveal. A tarefa da rodada é conhecida antes do commit. Cada jogador
 ///         comita o hash do seu programa sBPF (e paga a taxa de entrada em GOLF); depois revela o
 ///         programa, que é verificado e executado pelo SbpfVM em K inputs derivados de uma seed
-///         (blockhash do último bloco de commit, desconhecida na hora do commit). Ganha quem gastar
+///         (hash do último bloco de commit, desconhecida na hora do commit; via EIP-2935 quando
+///         já passou de 256 blocos). Ganha quem gastar
 ///         menos compute units com todas as respostas certas. Empate: commit mais antigo.
 ///
 ///         Seção 6.1 (taxa de entrada): parte queimada, resto vai para o prêmio da rodada.
@@ -48,7 +50,7 @@ contract SbpfGolf {
         uint256 task;
         uint64 commitEnd; // último bloco em que se pode comitar
         uint64 revealEnd; // último bloco em que se pode revelar
-        bytes32 seed; // blockhash(commitEnd), gravada no primeiro reveal
+        bytes32 seed; // hash do bloco commitEnd, gravada no primeiro reveal
         address best;
         uint64 bestCu;
         uint64 bestCommitBlock;
@@ -102,6 +104,7 @@ contract SbpfGolf {
     error NothingToRefund();
     error NotDeployer();
     error RevealWindowTooLong();
+    error SeedUnavailable();
 
     constructor(
         SbpfVM vm_,
@@ -112,7 +115,7 @@ contract SbpfGolf {
         uint64 commitBlocks,
         uint64 revealBlocks
     ) {
-        if (revealBlocks == 0 || revealBlocks > 250 || commitBlocks == 0 || entryBurnBps > 10_000) revert RevealWindowTooLong();
+        if (revealBlocks == 0 || revealBlocks > BlockSeed.MAX_REVEAL_BLOCKS || commitBlocks == 0 || entryBurnBps > 10_000) revert RevealWindowTooLong();
         vm = vm_;
         token = token_;
         ENTRY_FEE = entryFee_;
@@ -172,7 +175,8 @@ contract SbpfGolf {
 
         if (r.seed == bytes32(0)) {
             // ninguém conhecia este hash durante a janela de commit
-            r.seed = blockhash(r.commitEnd);
+            r.seed = BlockSeed.hashOf(r.commitEnd);
+            if (r.seed == bytes32(0)) revert SeedUnavailable();
         }
 
         totalCu = judge(r.task, r.seed, program);

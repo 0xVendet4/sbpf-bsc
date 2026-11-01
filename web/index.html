@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>CU Golf</title>
+<meta name="description" content="Escreva um programa Solana (sBPF) que roda dentro de um contrato na BSC. Quem gastar menos compute units ganha GOLF.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@112,600;112,800&family=Public+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: cartão de pontuação de golfe. Faixa do buraco (rodada) no topo; editor à esquerda, jogada e placar à direita. */
+:root {
+  --bg: #eef2ec;
+  --surface: #ffffff;
+  --sunken: #e3e9e2;
+  --ink: #15211a;
+  --muted: #56665c;
+  --line: #cdd7ce;
+  --green: #0b6b45;
+  --green-ink: #ffffff;
+  --flag: #f0b90b;
+  --flag-ink: #1d1600;
+  --ok: #0b6b45;
+  --warn: #9a5b00;
+  --bad: #b3261e;
+  --code-bg: #f7f9f6;
+  --display: "Archivo", "Arial Narrow", system-ui, sans-serif;
+  --body: "Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1511; --surface: #16201a; --sunken: #0b110d; --ink: #e2ebe4; --muted: #92a398; --line: #2a3a30;
+    --green: #39b37c; --green-ink: #04140c; --flag: #f0b90b; --flag-ink: #1d1600;
+    --ok: #4cc58d; --warn: #e2a33a; --bad: #ff8a80; --code-bg: #101914; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1511; --surface: #16201a; --sunken: #0b110d; --ink: #e2ebe4; --muted: #92a398; --line: #2a3a30;
+  --green: #39b37c; --green-ink: #04140c; --flag: #f0b90b; --flag-ink: #1d1600;
+  --ok: #4cc58d; --warn: #e2a33a; --bad: #ff8a80; --code-bg: #101914; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--ink); font: 15px/1.5 var(--body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 0 48px;
+}
+a { color: var(--green); }
+a:hover { text-decoration-thickness: 2px; }
+.wrap { max-width: 1180px; margin: 0 auto; }
+:focus-visible { outline: 2px solid var(--flag); outline-offset: 2px; }
+
+header.top { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; justify-content: space-between; padding-block: 18px 14px; }
+.brand { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.brand h1 { font: 800 28px/1 var(--display); font-stretch: 112%; letter-spacing: -0.01em; margin: 0; }
+.brand h1 span { color: var(--green); }
+.brand p { margin: 0; color: var(--muted); font-size: 14px; }
+.wallet { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.chip { font: 500 12px/1 var(--mono); padding: 7px 10px; border-radius: 999px; background: var(--sunken); color: var(--muted); white-space: nowrap; }
+.chip.live { color: var(--ok); }
+.chip.live::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: currentColor; margin-right: 6px; vertical-align: 1px; }
+
+button { font: 600 14px/1 var(--body); border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); padding: 10px 14px; cursor: pointer; }
+button:hover:not(:disabled) { border-color: var(--green); }
+button:disabled { opacity: .45; cursor: not-allowed; }
+button.primary { background: var(--flag); color: var(--flag-ink); border-color: transparent; }
+button.go { background: var(--green); color: var(--green-ink); border-color: transparent; }
+button.small { padding: 7px 10px; font-size: 13px; }
+
+/* faixa do buraco */
+.hole { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; display: grid; grid-template-columns: auto 1fr auto; gap: 0; overflow: hidden; }
+.hole-no { background: var(--green); color: var(--green-ink); padding: 18px 22px; display: flex; flex-direction: column; justify-content: center; min-width: 120px; }
+.hole-no small { font: 600 11px/1 var(--body); letter-spacing: .12em; text-transform: uppercase; opacity: .85; }
+.hole-no b { font: 800 46px/1 var(--display); font-stretch: 112%; font-variant-numeric: tabular-nums; }
+.hole-task { padding: 16px 22px; min-width: 0; display: flex; flex-direction: column; gap: 6px; justify-content: center; }
+.hole-task .name { font: 800 24px/1.1 var(--display); font-stretch: 112%; text-wrap: balance; }
+.hole-task .sig { font: 400 13px/1.4 var(--mono); color: var(--muted); overflow-wrap: anywhere; }
+.phase { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 4px; }
+.pill { font: 600 12px/1 var(--body); letter-spacing: .04em; text-transform: uppercase; padding: 6px 9px; border-radius: 6px; border: 1px solid currentColor; }
+.pill.commit { color: var(--green); }
+.pill.reveal { color: var(--warn); }
+.pill.over { color: var(--bad); }
+.timer { font: 600 14px/1 var(--mono); font-variant-numeric: tabular-nums; }
+.hole-stats { display: grid; grid-template-columns: repeat(3, auto); border-left: 1px solid var(--line); }
+.stat { padding: 16px 18px; display: flex; flex-direction: column; gap: 6px; justify-content: center; border-left: 1px solid var(--line); }
+.stat:first-child { border-left: 0; }
+.stat small { font: 600 11px/1 var(--body); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+.stat b { font: 600 22px/1 var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.stat b.par { color: var(--green); }
+.stat span { font: 400 12px/1.2 var(--mono); color: var(--muted); }
+
+main.grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 20px; margin-top: 20px; align-items: start; }
+section.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.panel h2 { font: 800 17px/1.2 var(--display); font-stretch: 112%; margin: 0; letter-spacing: .01em; }
+.panel h2 small { font: 500 13px var(--body); color: var(--muted); letter-spacing: 0; margin-left: 6px; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+
+.editor { position: relative; border: 1px solid var(--line); border-radius: 10px; background: var(--code-bg); overflow: hidden; }
+.editor textarea { display: block; width: 100%; min-height: 380px; resize: vertical; border: 0; background: transparent; color: var(--ink);
+  font: 400 13.5px/1.6 var(--mono); padding: 14px 16px; tab-size: 4; white-space: pre; overflow: auto; }
+.editor textarea:focus { outline: none; }
+.editor:focus-within { border-color: var(--green); }
+.asm-status { font: 400 12.5px/1.4 var(--mono); padding: 8px 12px; border-top: 1px solid var(--line); background: var(--surface); color: var(--muted); overflow-wrap: anywhere; }
+.asm-status.err { color: var(--bad); }
+.asm-status.ok b { color: var(--ink); }
+
+.result { border-radius: 10px; padding: 12px 14px; background: var(--sunken); font-size: 14px; display: flex; flex-direction: column; gap: 6px; }
+.result[data-kind="ok"] { border-left: 4px solid var(--ok); }
+.result[data-kind="bad"] { border-left: 4px solid var(--bad); }
+.result[data-kind="info"] { border-left: 4px solid var(--warn); }
+.result .big { font: 600 26px/1 var(--mono); font-variant-numeric: tabular-nums; }
+.result .mono { font: 400 12.5px/1.5 var(--mono); color: var(--muted); overflow-wrap: anywhere; }
+
+.steps { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 0; list-style: none; counter-reset: step; }
+.steps li { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 10px; align-items: start; }
+.steps li::before { counter-increment: step; content: counter(step); font: 600 13px/28px var(--mono); text-align: center; border-radius: 50%; background: var(--sunken); color: var(--muted); }
+.steps li.done::before { background: var(--green); color: var(--green-ink); content: "✓"; }
+.steps li.now::before { background: var(--flag); color: var(--flag-ink); }
+.steps .what { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.steps .what p { margin: 0; color: var(--muted); font-size: 13.5px; }
+.steps .what strong { font-weight: 600; }
+
+.board { width: 100%; border-collapse: collapse; font-size: 14px; }
+.board th { text-align: left; font: 600 11px/1 var(--body); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.board td { padding: 9px 8px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.board td.cu { font: 600 14px var(--mono); text-align: right; }
+.board th.cu { text-align: right; }
+.board tr.best td { background: color-mix(in srgb, var(--flag) 16%, transparent); }
+.board .addr { font: 400 13px var(--mono); }
+.board .you { font: 600 11px var(--body); color: var(--green); margin-left: 6px; text-transform: uppercase; letter-spacing: .06em; }
+.empty { color: var(--muted); font-size: 14px; margin: 0; }
+.scroll { overflow-x: auto; }
+
+.note { font-size: 13.5px; color: var(--muted); margin: 0; }
+.kv { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 14px; font-size: 13.5px; margin: 0; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; font-family: var(--mono); font-size: 12.5px; overflow-wrap: anywhere; }
+details summary { cursor: pointer; font-weight: 600; font-size: 14px; }
+details[open] summary { margin-bottom: 10px; }
+code, .code { font-family: var(--mono); font-size: 12.5px; }
+pre.cheat { margin: 0; padding: 12px; background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px; overflow-x: auto; font: 400 12.5px/1.55 var(--mono); }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(18px + env(safe-area-inset-bottom, 0px)); background: var(--ink); color: var(--bg); padding: 11px 16px; border-radius: 10px; font-size: 14px; max-width: min(560px, calc(100vw - 32px)); z-index: 20; box-shadow: 0 8px 24px rgba(0,0,0,.18); }
+footer { margin-top: 28px; color: var(--muted); font-size: 13px; display: flex; flex-wrap: wrap; gap: 6px 18px; }
+
+@media (max-width: 960px) {
+  main.grid { grid-template-columns: minmax(0, 1fr); }
+  .hole { grid-template-columns: auto minmax(0, 1fr); }
+  .hole-stats { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--line); grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 520px) {
+  .hole-no { min-width: 0; padding: 14px 16px; }
+  .hole-no b { font-size: 36px; }
+  .hole-task { padding: 14px 16px; }
+  .stat { padding: 12px; }
+  .stat small { white-space: normal; }
+  .stat b { font-size: 17px; }
+  .editor textarea { min-height: 300px; font-size: 13px; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <h1>CU <span>Golf</span></h1>
+      <p>Programas Solana rodando dentro da BSC. Menos compute units, mais GOLF.</p>
+    </div>
+    <div class="wallet">
+      <span class="chip" id="netChip">BSC testnet</span>
+      <span class="chip" id="blockChip">bloco …</span>
+      <button class="primary" id="connectBtn" type="button">Conectar carteira</button>
+    </div>
+  </header>
+
+  <section class="hole" aria-label="Rodada atual">
+    <div class="hole-no"><small>Rodada</small><b id="roundNo">…</b></div>
+    <div class="hole-task">
+      <div class="name" id="taskName">Carregando a rodada…</div>
+      <div class="sig" id="taskSig">&nbsp;</div>
+      <div class="phase"><span class="pill" id="phasePill">…</span><span class="timer" id="phaseTimer"></span></div>
+    </div>
+    <div class="hole-stats">
+      <div class="stat"><small>Par (melhor CU)</small><b class="par" id="parCu">—</b><span id="parWho">ninguém revelou</span></div>
+      <div class="stat"><small>Prêmio</small><b id="prize">—</b><span id="prizeNote">GOLF</span></div>
+      <div class="stat"><small>Entrada</small><b id="fee">—</b><span id="feeNote">GOLF</span></div>
+    </div>
+  </section>
+
+  <main class="grid">
+    <section class="panel" aria-labelledby="edTitle">
+      <div class="row" style="justify-content: space-between;">
+        <h2 id="edTitle">Seu programa <small>assembly sBPF v0</small></h2>
+        <div class="row">
+          <button class="small" id="exampleBtn" type="button">Carregar exemplo</button>
+        </div>
+      </div>
+      <div class="editor">
+        <label for="src" class="sr" hidden>Código</label>
+        <textarea id="src" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Código sBPF"></textarea>
+        <div class="asm-status" id="asmStatus">…</div>
+      </div>
+      <div class="row">
+        <button class="go" id="testBtn" type="button">Testar grátis</button>
+        <span class="note">Roda o seu programa no contrato com entradas aleatórias, sem transação e sem gastar gas.</span>
+      </div>
+      <div class="result" id="testResult" hidden></div>
+      <details>
+        <summary>Cola de sintaxe</summary>
+        <pre class="cheat">; comentário até o fim da linha
+; entrada: r1 aponta para os bytes do input (somente leitura)
+; saída: o valor em r0 quando o programa chega em exit
+ldxdw r2, [r1+8]      ; lê u64 (também ldxw, ldxh, ldxb)
+stxdw [r10-8], r2     ; pilha: 4 KiB abaixo de r10
+mov64 r0, 0           ; add64 sub64 mul64 div64 mod64 or64 and64 xor64
+lsh64 r2, 1           ; rsh64 arsh64 neg64; versões 32 bits: add32 etc.
+lddw r3, 0x123456789abcdef0
+jeq r2, 0, fim        ; jne jgt jge jlt jle jset jsgt jsge jslt jsle
+ja loop
+fim:
+exit</pre>
+        <p class="note">1 CU por instrução executada. Limite: 5.000 CU por entrada e 256 instruções. Sem syscalls e sem <code>call</code>.</p>
+      </details>
+    </section>
+
+    <div class="col">
+      <section class="panel" aria-labelledby="playTitle">
+        <h2 id="playTitle">Jogar esta rodada</h2>
+        <ol class="steps" id="steps">
+          <li id="stepWallet"><div class="what"><strong>Conectar a carteira na BSC testnet</strong>
+            <p>Precisa de um pouco de tBNB para o gas. <a href="https://www.bnbchain.org/en/testnet-faucet" target="_blank" rel="noopener">Pegar tBNB no faucet</a>.</p></div></li>
+          <li id="stepCommit"><div class="what"><strong>Enviar o programa lacrado (commit)</strong>
+            <p>Vai só um hash. Ninguém vê o seu código antes do fim da janela.</p>
+            <div class="row"><button class="primary" id="commitBtn" type="button" disabled>Enviar commit</button></div></div></li>
+          <li id="stepReveal"><div class="what"><strong>Revelar quando o commit fechar</strong>
+            <p>O contrato roda o programa em 4 entradas sorteadas pelo hash do bloco e conta os CU.</p>
+            <div class="row"><button class="primary" id="revealBtn" type="button" disabled>Revelar</button></div></div></li>
+          <li id="stepFinal"><div class="what"><strong>Fechar a rodada</strong>
+            <p>Qualquer pessoa pode fechar depois do reveal. O menor CU leva a recompensa e abre a próxima rodada.</p>
+            <div class="row"><button id="finalizeBtn" type="button" disabled>Fechar rodada</button></div></div></li>
+        </ol>
+        <div class="result" id="playResult" hidden></div>
+        <details id="backupBox" hidden>
+          <summary>Backup do seu commit</summary>
+          <p class="note">O segredo (salt) do commit fica só neste navegador. Guarde este texto se for revelar de outro lugar.</p>
+          <pre class="cheat" id="backupText"></pre>
+          <div class="row"><button class="small" id="copyBackup" type="button">Copiar</button></div>
+        </details>
+      </section>
+
+      <section class="panel" aria-labelledby="boardTitle">
+        <h2 id="boardTitle">Placar da rodada</h2>
+        <div class="scroll"><table class="board" id="boardTable" hidden>
+          <thead><tr><th>Jogador</th><th class="cu">CU</th></tr></thead>
+          <tbody id="boardBody"></tbody>
+        </table></div>
+        <p class="empty" id="boardEmpty">Ninguém revelou ainda nesta rodada.</p>
+        <p class="note" id="commitCount"></p>
+      </section>
+
+      <section class="panel" aria-labelledby="pastTitle">
+        <h2 id="pastTitle">Rodadas anteriores</h2>
+        <div class="scroll"><table class="board" id="pastTable" hidden>
+          <thead><tr><th>Rodada</th><th>Vencedor</th><th class="cu">CU</th></tr></thead>
+          <tbody id="pastBody"></tbody>
+        </table></div>
+        <p class="empty" id="pastEmpty">Ainda não há rodadas fechadas.</p>
+      </section>
+
+      <section class="panel" aria-labelledby="youTitle" id="youPanel" hidden>
+        <h2 id="youTitle">Sua carteira</h2>
+        <dl class="kv">
+          <dt>Endereço</dt><dd id="youAddr"></dd>
+          <dt>tBNB</dt><dd id="youBnb"></dd>
+          <dt>GOLF</dt><dd id="youGolf"></dd>
+        </dl>
+        <div class="row"><button class="small" id="watchToken" type="button">Adicionar GOLF na carteira</button></div>
+      </section>
+    </div>
+  </main>
+
+  <footer>
+    <span>Contratos na BSC testnet:
+      <a id="lnkGolf" target="_blank" rel="noopener">SbpfGolf</a> ·
+      <a id="lnkVm" target="_blank" rel="noopener">SbpfVM</a> ·
+      <a id="lnkToken" target="_blank" rel="noopener">GolfToken</a></span>
+    <span>O assembler desta página é um port do <code>solana-sbpf</code> 0.26.0, conferido byte a byte contra o oficial.</span>
+  </footer>
+</div>
+<div class="toast" id="toast" hidden role="status"></div>
+
+<script src="vendor/ethers-6.17.0.umd.min.js"></script>
+<script src="sbpf-asm.js"></script>
+<script src="examples.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

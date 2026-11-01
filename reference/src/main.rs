@@ -25,7 +25,7 @@ use solana_sbpf::{
     verifier::RequisiteVerifier,
     vm::{CallFrame, Config, ContextObject, EbpfVm, ExecutionMode},
 };
-use std::{fs, path::Path, ptr::NonNull, sync::Arc};
+use std::{cell::RefCell, fs, path::Path, ptr::NonNull, sync::Arc};
 
 // ------------------------------------------------------------------ VM de referência
 
@@ -120,14 +120,35 @@ fn run(prog: &[u8], input: &[u8], max_cu: u64) -> Outcome {
 /// Monta com o assembler do próprio solana-sbpf. Ele não aceita comentários, então
 /// linhas/trechos após `;` são removidos antes (é o único açúcar que adicionamos).
 fn asm(src: &str) -> Vec<u8> {
+    try_asm(src).unwrap_or_else(|e| panic!("assembler: {e}\n{src}"))
+}
+
+thread_local! {
+    /// Todo texto que passa pelo assembler oficial vira um caso de fixtures/asm.json (para validar
+    /// o assembler em JS da página web).
+    static ASM_LOG: RefCell<Vec<Value>> = const { RefCell::new(vec![]) };
+}
+
+fn try_asm(src: &str) -> Result<Vec<u8>, String> {
+    let r = try_asm_raw(src);
+    ASM_LOG.with(|l| {
+        l.borrow_mut().push(match &r {
+            Ok(b) => json!({ "src": src, "program": format!("0x{}", hex(b)) }),
+            Err(e) => json!({ "src": src, "error": e }),
+        })
+    });
+    r
+}
+
+fn try_asm_raw(src: &str) -> Result<Vec<u8>, String> {
     let clean: String = src
         .lines()
         .map(|l| l.split(';').next().unwrap_or("").trim_end())
         .filter(|l| !l.trim().is_empty())
         .collect::<Vec<_>>()
         .join("\n");
-    let exe = assemble::<Ctx>(&clean, loader()).unwrap_or_else(|e| panic!("assembler: {e}\n{clean}"));
-    exe.get_text_bytes().1.to_vec()
+    let exe = assemble::<Ctx>(&clean, loader())?;
+    Ok(exe.get_text_bytes().1.to_vec())
 }
 
 fn fixture(name: &str, prog: &[u8], input: &[u8], max_cu: u64) -> Value {
@@ -542,6 +563,73 @@ fn random_cases(n: usize) -> Vec<Value> {
         .collect()
 }
 
+// ------------------------------------------------------------------ corpus do assembler
+
+/// Sintaxe "difícil" (espaços, hex, sinais, rótulos, erros). O resultado oficial, sucesso ou erro,
+/// é o esperado do assembler em JS.
+const ASM_EXTRA: &[&str] = &[
+    "mov r0, 1\nexit", "mov32 r0, -1\nexit", "add r0, 0x7fffffff\nexit", "add r0, 0x80000000\nexit",
+    "add r0, -0x80000000\nexit", "add r0, - 5\nexit", "add r0, +5\nexit", "mov r0,1\nexit",
+    "mov r0 , 1\nexit", "mov\tr0, 1\nexit", "  \n\n  mov r0, 1   \n\n exit  \n", "exit exit",
+    "add64 r10, 8\nexit", "add r10, -8\nexit", "sub64 r10, 8\nexit", "mov r11, 1\nexit", "mov r16, 1\nexit",
+    "mov r0, r10\nexit", "ldxdw r0, [r10-8]\nexit", "ldxdw r0, [r10 - 8]\nexit", "ldxdw r0, [r10 -8]\nexit",
+    "ldxdw r0, [r10- 8]\nexit", "ldxdw r0, [r1]\nexit", "ldxdw r0, [r1 8]\nexit", "ldxdw r0, [ r1+8]\nexit",
+    "ldxdw r0, [r1+8 ]\nexit", "ldxdw r0, [r1+0x10]\nexit", "ldxdw r0, [r1+32767]\nexit", "ldxdw r0, [r1+32768]\nexit",
+    "ldxdw r0, [r1-32768]\nexit", "stxb [r10-1], r1\nexit", "sth [r10-2], 0x7fff\nexit", "stw [r10-4], -1\nexit",
+    "lddw r0, 0xffffffffffffffff\nexit", "lddw r0, 0x1ffffffffffffffff\nexit", "lddw r0, -1\nexit",
+    "lddw r0, 9223372036854775807\nexit", "lddw r0, 9223372036854775808\nexit", "lddw r0, -9223372036854775808\nexit",
+    "lddw r0, 0x8000000000000000\nexit", "lddw r0, -0x8000000000000000\nexit", "lddw r0, 0x\nexit", "lddw r0, 0xg\nexit",
+    "ja +0\nexit", "ja 0\nexit", "ja -1\nexit", "ja +32767\nexit", "ja +32768\nexit", "ja end\nend:\nexit",
+    "ja end\nexit", "start:\nja start\nexit", "a:b:\nexit", "l1: l2: mov r0, 1\nja l1\nexit", "x_1:\nja x_1\nexit",
+    "retry:\nja retry\nexit", "loop:\njne r0, 0, loop\nexit", "jeq r0, r1, +1\nexit\nexit", "jeq32 r0, 1, +1\nexit\nexit",
+    "jsgt64 r0, -1, +0\nexit", "jset r1, 0x80, done\ndone: exit", "jeq r0, 1\nexit", "jeq r0, 1, 2, 3\nexit",
+    "neg r0\nexit", "neg32 r0\nexit", "neg64 r0\nexit", "neg r0, 1\nexit", "be16 r0\nexit", "le64 r0\nexit", "be32 r1\nexit",
+    "lmul r0, r1\nexit", "udiv32 r0, 3\nexit", "urem r0, 0\nexit", "sdiv64 r0, r1\nexit", "srem32 r0, -7\nexit",
+    "uhmul r0, r1\nexit", "shmul64 r0, 2\nexit", "hor64 r0, 1\nexit", "hor r0, r1\nexit", "arsh32 r0, 3\nexit",
+    "call 1\nexit", "call fn\nexit\nfn:\nexit", "callx r2\nexit", "syscall sol_log_\nexit", "syscall 5\nexit",
+    "syscall abort\nexit", "function_foo:\nexit", "entrypoint:\nexit", "nop\nexit", "MOV r0, 1\nexit", "Mov64 r0, 1\nexit",
+    "mov R0, 1\nexit", "mov r0, 1 ; comentário\nexit", "; só comentário\nexit", ".fill 2, 0x95\nexit", ".fill 1, 0\nexit",
+    ".text\nexit", ".fill 1\nexit", "", "   ", "mov r0, 1", "mov r0, 99999999999999999999\nexit", "mov r0, 0x123456789\nexit",
+    "mov r0, 2147483648\nexit", "mov r0, -2147483649\nexit", "mov r0, r1, r2\nexit", "mov r0\nexit", "mov 1, r0\nexit",
+    "ldxb r0, r1\nexit", "stxdw [r10-8], 5\nexit", "stdw [r10-8], r1\nexit", "exit 1", "exit,", "mov r0, 1,\nexit",
+    "mov r0, [r1+1]\nexit", "jeq r0, 0, +1\n  done:   exit", "lbl:mov r0, 1\nexit", "lbl :\nexit", "_x:\nja _x",
+    "9a:\nja 9a", "mov r00, 1\nexit", "mov r01, 1\nexit", "add r0, 00012\nexit", "add r0, 0X10\nexit",
+    "ldxh r0, [r1+-2]\nexit", "ldxh r0, [r1--2]\nexit", "ja +1 \nexit\nexit", "ja\nexit", "lddw r0\nexit",
+    "lddw r0, r1\nexit", "lddw r0, label\nlabel: exit", "mov r0, label\nlabel: exit", "jeq r0, label, +1\nlabel: exit\nexit",
+];
+
+/// Corpus do assembler: tudo o que já foi montado acima, os extras e os programas aleatórios
+/// desmontados pelo disassembler oficial (com rótulos `lbb_N`) e montados de volta.
+fn asm_cases(n_random: usize) -> Vec<Value> {
+    for src in ASM_EXTRA {
+        let _ = try_asm(src);
+    }
+    let mut r = Rng(0x5bf0_b5c0_ffee);
+    for _ in 0..n_random {
+        let (p, _, _) = rand_program(&mut r);
+        if p.is_empty() || p.len() % 8 != 0 {
+            continue;
+        }
+        let Ok(exe) = Executable::<Ctx>::from_text_bytes(&p, loader(), SBPFVersion::V0, FunctionRegistry::default()) else {
+            continue;
+        };
+        let Ok(analysis) = solana_sbpf::static_analysis::Analysis::from_executable(&exe) else { continue };
+        let mut out = vec![];
+        if analysis.disassemble(&mut out).is_ok() {
+            let _ = try_asm(&String::from_utf8_lossy(&out));
+        }
+    }
+    let mut seen = std::collections::HashSet::new();
+    ASM_LOG.with(|l| l.borrow().iter().filter(|c| seen.insert(c["src"].as_str().unwrap().to_string())).cloned().collect())
+}
+
+fn write_asm(dir: &Path, cases: Vec<Value>) {
+    let ok = cases.iter().filter(|c| c.get("program").is_some()).count();
+    let body = json!({ "cases": cases });
+    fs::write(dir.join("asm.json"), serde_json::to_string_pretty(&body).unwrap() + "\n").unwrap();
+    println!("asm.json: {} casos ({ok} montam, {} erros)", cases.len(), cases.len() - ok);
+}
+
 // ------------------------------------------------------------------ main
 
 fn write(dir: &Path, name: &str, cases: Vec<Value>) {
@@ -565,4 +653,5 @@ fn main() {
     write(&fixtures, "invalid.json", invalid_cases());
     write(&fixtures, "programs.json", demo_cases(&root.join("programs")));
     write(&fixtures, "random.json", random_cases(n_random));
+    write_asm(&fixtures, asm_cases(n_random));
 }

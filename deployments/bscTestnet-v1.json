@@ -1,0 +1,49 @@
+{
+  "network": "bscTestnet",
+  "chainId": 97,
+  "deployer": "0x3D4c4eBDeeCd265FC744E10c445be9Df89361013",
+  "deployedAt": "2026-11-01T03:58:00Z",
+  "contracts": {
+    "SbpfVM": {
+      "address": "0x5B6B8f64280F5f2536d87991404a7Bc4a542cFcF",
+      "args": [],
+      "source": "contracts/src/SbpfVM.sol:SbpfVM",
+      "constructorArgsAbiEncoded": ""
+    },
+    "GolfToken": {
+      "address": "0x504DA7102aB8D80ce230e4d9B22a85EDc4A1E86a",
+      "args": [],
+      "source": "contracts/src/GolfToken.sol:GolfToken",
+      "constructorArgsAbiEncoded": ""
+    },
+    "SbpfGolf": {
+      "address": "0x49d408c048e7C1779b74afe6D28E7071FB1FAf8C",
+      "args": [
+        "0x5B6B8f64280F5f2536d87991404a7Bc4a542cFcF",
+        "0x504DA7102aB8D80ce230e4d9B22a85EDc4A1E86a",
+        "10000000000000000000",
+        5000,
+        100,
+        400,
+        200
+      ],
+      "source": "contracts/src/SbpfGolf.sol:SbpfGolf",
+      "constructorArgsAbiEncoded": "0000000000000000000000005b6b8f64280f5f2536d87991404a7bc4a542cfcf000000000000000000000000504da7102ab8d80ce230e4d9b22a85edc4a1e86a0000000000000000000000000000000000000000000000008ac7230489e8000000000000000000000000000000000000000000000000000000000000000013880000000000000000000000000000000000000000000000000000000000000064000000000000000000000000000000000000000000000000000000000000019000000000000000000000000000000000000000000000000000000000000000c8"
+    },
+    "BountyBoard": {
+      "address": "0x825d52e6315a1A3D1775CF278Da6E7741bF61640",
+      "args": [
+        "0x5B6B8f64280F5f2536d87991404a7Bc4a542cFcF",
+        "0x504DA7102aB8D80ce230e4d9B22a85EDc4A1E86a",
+        "5000000000000000000"
+      ],
+      "source": "contracts/src/BountyBoard.sol:BountyBoard",
+      "constructorArgsAbiEncoded": "0000000000000000000000005b6b8f64280f5f2536d87991404a7bc4a542cfcf000000000000000000000000504da7102ab8d80ce230e4d9b22a85edc4a1e86a0000000000000000000000000000000000000000000000004563918244f40000"
+    }
+  },
+  "compiler": {
+    "version": "v0.8.28+commit.7893614a.Emscripten.clang",
+    "optimizer": "enabled, runs 10000",
+    "evmVersion": "cancun"
+  }
+}

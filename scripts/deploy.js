@@ -20,11 +20,11 @@ async function main() {
   console.log("GolfToken:", await token.getAddress());
 
   // Parâmetros iniciais (ajuste depois de medir demanda e tempo de bloco da BSC):
-  // taxa de entrada 10 GOLF (50% queimada), 100 rodadas grátis, commit 400 blocos, reveal 200 blocos.
+  // taxa de entrada 10 GOLF (50% queimada), 100 rodadas grátis, commit 8000 blocos (~1 h a 0,45 s/bloco), reveal 4000 blocos (~30 min; máx. 8000).
   const entryFee = ethers.parseEther(process.env.ENTRY_FEE || "10");
   const golf = await (await ethers.getContractFactory("SbpfGolf")).deploy(
     vm, token, entryFee, 5000, Number(process.env.FREE_ROUNDS || 100),
-    Number(process.env.COMMIT_BLOCKS || 400), Number(process.env.REVEAL_BLOCKS || 200), tx(),
+    Number(process.env.COMMIT_BLOCKS || 8000), Number(process.env.REVEAL_BLOCKS || 4000), tx(),
   );
   await golf.waitForDeployment();
   console.log("SbpfGolf:", await golf.getAddress());
@@ -42,7 +42,7 @@ async function main() {
       SbpfVM: { address: await vm.getAddress(), args: [] },
       GolfToken: { address: await token.getAddress(), args: [] },
       SbpfGolf: { address: await golf.getAddress(), args: [await vm.getAddress(), await token.getAddress(), entryFee.toString(), 5000,
-        Number(process.env.FREE_ROUNDS || 100), Number(process.env.COMMIT_BLOCKS || 400), Number(process.env.REVEAL_BLOCKS || 200)] },
+        Number(process.env.FREE_ROUNDS || 100), Number(process.env.COMMIT_BLOCKS || 8000), Number(process.env.REVEAL_BLOCKS || 4000)] },
       BountyBoard: { address: await board.getAddress(), args: [await vm.getAddress(), await token.getAddress(), ethers.parseEther(process.env.BOUNTY_FEE || "5").toString()] },
     },
   };

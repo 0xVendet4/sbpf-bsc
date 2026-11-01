@@ -38,12 +38,12 @@
       "source": "contracts/src/SolanaLoader.sol:SolanaLoader"
     },
     "SolanaStore": {
-      "address": "0x9570358F8D8E3938e0d7A6D67d749f064f75183b",
+      "address": "0xc152d6f13d8A783cAa889d14d5DED5629E2Ec692",
       "args": [
         "0xC4948B424a41868Bd17181FfD4e3e5bc81d1750B",
         "0xCeA431eEB87d8ECe5255E7d2c7E119a9E4F8abc0"
       ],
-      "tx": "0x50c8c25242cb056088eb243c15a959832549a8ae01d01ad393d8214371fd57f9",
+      "tx": "0x57c20f6012eedb2aa8ea0a2fffceb11ff509dcd1de2182d0b0eff2088dfa2c26",
       "source": "contracts/src/SolanaStore.sol:SolanaStore"
     }
   }

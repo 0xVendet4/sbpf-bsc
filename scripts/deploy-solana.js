@@ -26,7 +26,16 @@ async function main() {
       const c = reuse.get(name) ? { address: reuse.get(name), args, source: `contracts/src/${name}.sol:${name}` } : prev.contracts[name];
       const code = await ethers.provider.getCode(c.address);
       const art = await hre.artifacts.readArtifact(name);
-      if (code === "0x" || strip(code) !== strip(art.deployedBytecode)) throw new Error(`${name} em ${c.address} não tem o código atual`);
+      // imutáveis (endereços passados no construtor) ficam zerados nas duas versões antes de comparar
+      const fqn = `contracts/src/${name}.sol:${name}`;
+      const bi = await hre.artifacts.getBuildInfo(fqn);
+      const refs = Object.values(bi.output.contracts[`contracts/src/${name}.sol`][name].evm.deployedBytecode.immutableReferences || {}).flat();
+      const mask = (hex) => {
+        const b = ethers.getBytes(hex);
+        for (const { start, length } of refs) b.fill(0, start, start + length);
+        return ethers.hexlify(b);
+      };
+      if (code === "0x" || strip(mask(code)) !== strip(mask(art.deployedBytecode))) throw new Error(`${name} em ${c.address} não tem o código atual`);
       console.log(name.padEnd(14), c.address, "reaproveitado");
       out.contracts[name] = c;
       return c.address;

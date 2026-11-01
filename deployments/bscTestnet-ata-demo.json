@@ -1,65 +1,65 @@
 {
-  "store": "0x9570358F8D8E3938e0d7A6D67d749f064f75183b",
+  "store": "0xc152d6f13d8A783cAa889d14d5DED5629E2Ec692",
   "steps": {
     "writeProgram 0": {
-      "tx": "0x637812216a0339f02e6e8d7713fafb3e6ef8d1df1f874896c3858c571828bdf3",
+      "tx": "0x6d2766ec996ec6ecdccd32e1a7a9c2e156acfded02c4f21d03176fddac638ce2",
       "gas": 5307148
     },
     "writeProgram 1": {
-      "tx": "0x34e8d9eda2afb1c54f9be945e46047a8031a1b5a319776b95e72fe949254a812",
+      "tx": "0x2a367f495c96774f83a1e2735a82443343bf65ca8b5ea8b5a0a47fcab12c1ef4",
       "gas": 5244748
     },
     "writeProgram 2": {
-      "tx": "0xcc5407ecffe4a4aa09db9a816255cba732faad3f0b1b27a76a7f024335cb6078",
+      "tx": "0x6379b205244a34a920ba1e0f1dee07ec0e1811deb33abf0d4d64fae763ecbada",
       "gas": 5240500
     },
     "writeProgram 3": {
-      "tx": "0x91304464e4c3fec883310734416d1ec053c1b56c3ba8545448754af560f11923",
+      "tx": "0x4c6cc5d1d20c3984f667a56abeeb08a1ebaf2d89ef75877f7b3b8a74da4e63dd",
       "gas": 5262844
     },
     "writeProgram 4": {
-      "tx": "0xef009a0036d92e283a3cd2d572751e30d0c31ea5e1febfa4eeb30ce3b2bf7464",
+      "tx": "0xeff92f2706b8c2cb5c8659f3cf48c37928cc610def626250006198a1cde068f9",
       "gas": 1490400
     },
     "finalizeProgram": {
-      "tx": "0x6b0b9def5666ffda76f655e010fc33787ea3420c2cb4a04c5d347d1bb7f74ab6",
+      "tx": "0x6132101b2129f662fb080622f2af845dfcbbc24b186214bdce4d6c24a68e03a5",
       "gas": 9367855
     },
     "verifyProgram": {
-      "tx": "0x59daddd9fc374fce45a2b9fb2e38afe913ea025b91fa1757c5480294b79969b0",
+      "tx": "0xc9818b5af1eef2ca1dbd19488064864d74d29cfe6b1c4c0cbc62ad2fc3377333",
       "gas": 8367424
     },
     "writeImage 0": {
-      "tx": "0xac9ecd2f4dff4a9a3bb51bc72f035a99e051c7af4f6e514823b898f80e994537",
+      "tx": "0xba28f2129276ba8390b7972612dde5a833c840836c6b49f41100729a048fb36c",
       "gas": 5268501
     },
     "writeImage 1": {
-      "tx": "0xcb62d6ab364f1c1a59de522e12aaa52098393b20ea589a88df8a74935b22e5aa",
+      "tx": "0xc1189b9d8951f4fade2934fb95ceafcb6cab336aeda7a8b767fbcb088c70d78c",
       "gas": 5244092
     },
     "writeImage 2": {
-      "tx": "0xb852d51ccd48c185a7ed8d502f87f8839fb4de2093ea612c5728b2fbb28c045b",
+      "tx": "0x8c9fe24c1ac7c0b7086ab5f2c51209d434fd8cfdb837af3d115b7ea77fda2fa1",
       "gas": 5238320
     },
     "writeImage 3": {
-      "tx": "0xe31faddcb6dfca75411d5f78f413e61bb05ff21a4e1e0b2c01b8471bcefec625",
+      "tx": "0x18639b1bad626522bf2a3ec7d0b94fca9e41f41ee49b3819335ebdba0b7c00bb",
       "gas": 5260628
     },
     "writeImage 4": {
-      "tx": "0x99ce409537c1b43c20baa4dee8bab1f41a609e5074b02ac512ad5f250a049ac2",
+      "tx": "0x81456842bbb0102e83a207304c9a1bbd7646c4faa6ce5286a6a8daab6c040d3c",
       "gas": 288965
     },
     "finalizeImage": {
-      "tx": "0x60bd3a51dcb87a55120dcfc81bddcfe72d7d640159db348bc2f2e74be7a768a7",
+      "tx": "0xe07188a046dd4ab22abc13daa1d92295f23ac14573979a8cce6896036ac878f6",
       "gas": 934818
     },
     "deposit (rent da conta de token)": {
-      "tx": "0xe927147e9508c2c33ab9d0d699f4384e7e619be76613bd324eb1f828898deebd",
-      "gas": 45998
+      "tx": "0xf6398330b40a1bffb23af81132debacc1b2b03a07606fbca74c18a7ca92b5b06",
+      "gas": 46043
     },
     "ATA Create": {
-      "tx": "0x993f4df9ea07c1c6ff4560d22f38705dee9d4f8318de28fcec57a7a4a7347863",
-      "gas": 11490959,
+      "tx": "0xd36356c79b75c161be2447597f34609a75e6000ddd11fabc55eadce90428879b",
+      "gas": 11491673,
       "cu": 14980,
       "logs": [
         "Program ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL invoke [1]",
@@ -82,8 +82,8 @@
       ]
     },
     "ATA CreateIdempotent (já existe)": {
-      "tx": "0xd1a719474aa3be06c4f8eccf0b5ad8052614e643e2bb8ad4fec2bd5f3c626a84",
-      "gas": 3805992,
+      "tx": "0x6f91511c6620f3ab8d9bcd55ee5c7b75795159989686c7b48d92d7f9fa28aa5e",
+      "gas": 3806704,
       "cu": 5937,
       "logs": [
         "Program ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL invoke [1]",
@@ -93,8 +93,8 @@
       ]
     },
     "Transfer 0.100000 A → conta associada": {
-      "tx": "0xa77fb408b3dedc30c2b4b13563df4fcab646bd20e7e0f53f27572e4eb88e5ac9",
-      "gas": 660135,
+      "tx": "0xdfc2e4ff58ece8205a4d409ac97a6d07bdb52d0c97e46a838fc671a9afc382df",
+      "gas": 660529,
       "cu": 76,
       "logs": [
         "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [1]",

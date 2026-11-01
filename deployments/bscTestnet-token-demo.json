@@ -1,77 +1,77 @@
 {
-  "store": "0x9570358F8D8E3938e0d7A6D67d749f064f75183b",
+  "store": "0xc152d6f13d8A783cAa889d14d5DED5629E2Ec692",
   "steps": {
     "writeProgram 0": {
-      "tx": "0x15af803660d1bba7c3ec67c5e61de0c0044a3104f2f0a1c15f4000f54ab4abda",
+      "tx": "0x6eab393b28c5d183d52030453f54f0a14f5cc8bd3299e8f43d3857ceca5f3a5e",
       "gas": 5311648
     },
     "writeProgram 1": {
-      "tx": "0x54a750159f6448989b8e2e17413296cb055ebebeaa71c650172601f2b6a87dba",
+      "tx": "0x67e78e93bf9cdfc754aa588e4fea6bf7c79235e1ded4871ddba6eddef64fa8da",
       "gas": 5252692
     },
     "writeProgram 2": {
-      "tx": "0x264b738ad2e6039c371cb7a8594df876a3b7dcd764c87868ce8984361a98dd32",
+      "tx": "0xf2a30883ef0639e76c7f540579404439ee3f503193552816b7307ccad39009e5",
       "gas": 5250640
     },
     "writeProgram 3": {
-      "tx": "0x4229454debf44905146347280cd56f1c3a8d34b2383eb107c68406a845b8e73c",
+      "tx": "0x98b81f83fd118e169c4a3b6dd23a92bc68c9cd8f287fcdfa14482fd7b331c421",
       "gas": 5244436
     },
     "writeProgram 4": {
-      "tx": "0x2c6c6e602d9881c32b43bc31ddda81af5a21e8f18b28259c66cedc5d03bba3da",
+      "tx": "0xef9feaf6ee9d967b2d49c42ad9db74108c154b7d072cfecb8de6d1f97f3a47f8",
       "gas": 2256384
     },
     "finalizeProgram": {
-      "tx": "0xeeea744a921dcda671f38f1328d46d97913f90bf6374302c3f421302caf2d857",
+      "tx": "0x4b73c5b18ab978de55d991bdd118383c7632b99333fcde658081faced538d390",
       "gas": 3830409
     },
     "verifyProgram": {
-      "tx": "0xe1289b78ed915951eb86b47447bed95f319154665002a8e1953109a79d659817",
+      "tx": "0x9dd07de71ff299996effaae2ba2a1936a141ab0edeca05d83f9f753fec7201d7",
       "gas": 8741034
     },
     "writeImage 0": {
-      "tx": "0x93f6096fe63cc00b6a6942453221b88e22d9e211c2800c1fadb22a29cf4e1ed4",
+      "tx": "0x0687301441eaec38dd924a7276d4d90d95ce42d13ca9da02ea37515bab194e86",
       "gas": 5266029
     },
     "writeImage 1": {
-      "tx": "0xbb0d7288cfd1b6cf845379c5d5ba02eb80541d000cd9b84a0c8ded50df605bb3",
+      "tx": "0x60d3ff7f20d82996ab60f483dac163b69453007dcb078be8ca562214da5f7636",
       "gas": 5248760
     },
     "writeImage 2": {
-      "tx": "0xe73ca6c2357d096d18f69ec8fabf532f86785d45f14ee83ee1f0047fb3444f40",
+      "tx": "0x6711cb8843b30c99065503af043206223ed49a434a7e7b96c454d5ebdc9e709b",
       "gas": 5246936
     },
     "writeImage 3": {
-      "tx": "0x0033114819accd396b00d62e14d538ce51b911c09c29a824a8228ae04404b201",
+      "tx": "0x9ccb3b8d0de7e0450ccd9c15e56a8f7a6f02a8634a5ceae732b20883d5e726ee",
       "gas": 5240588
     },
     "writeImage 4": {
-      "tx": "0xbae48d668da1af3e5f1c6a39b2fafd86524c9197aacb8b37541cc6422548bc2c",
+      "tx": "0x004852d532a337c7ae66a5b055086c1ebd1584dfe6f74ef9e324207fc3b06028",
       "gas": 1711587
     },
     "finalizeImage": {
-      "tx": "0xd168ae20865330b446dfdd77de1f04e1e0c283c2008b63032b60cbed48fd7757",
+      "tx": "0x8d85b95db0e53e028b5aad50dfa95364ee5361fa56329f690c44e5f4c80e9373",
       "gas": 593423
     },
     "deposit (rent das 3 contas)": {
-      "tx": "0x7fdab2b27aed065862b50fd2af7588d9a3d34a8008c715b6a29b2e297776e7f8",
-      "gas": 45998
+      "tx": "0x46622d64cd2201af43d4d9e93cae374bac5ae5a3db1dc42a9ce2560dda1d031e",
+      "gas": 46043
     },
     "createAccount mint": {
-      "tx": "0xc8db0959cfe3ce6c7d89b7af5609102713bf239037de42cb84cf7fd1ceeb067e",
+      "tx": "0x305a5c603075c9d5951fe4f39dbfdf4d5094497477ed818f4ac324e347215c38",
       "gas": 107413
     },
     "createAccount conta A": {
-      "tx": "0x0390f2da0686d82c7edd12102fd2f2ab1d7199712dcdd1610c5a4a68f49d63dd",
+      "tx": "0xf678f222d06d2523e7a22794dc66b31fcfc35157cad5d41f1f958bff361a2291",
       "gas": 114286
     },
     "createAccount conta B": {
-      "tx": "0x7e9dad0d135b70b9a0c92cd73a4c091e1e7d361cff9ac846f8f7586d64784077",
+      "tx": "0xdffe3e3cdbf427a5c9a4d29338d312135061c3e8c070a4995d5957e4042b447f",
       "gas": 109486
     },
     "InitializeMint2 (6 casas)": {
-      "tx": "0xf3b45388d16da597c029451021755e00e05c57198942296fb3988ed69df077d1",
-      "gas": 558751,
+      "tx": "0xde264f2535a9988ee7c79c12fd8afe35dbfbbb08fd14c6c717e210edd64118ca",
+      "gas": 559143,
       "cu": 202,
       "logs": [
         "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [1]",
@@ -80,8 +80,8 @@
       ]
     },
     "InitializeAccount3 A": {
-      "tx": "0x220d6ca57aef9a12633546f8af90b164d17ed91e7c1f22ec805d93fe1991b97d",
-      "gas": 669731,
+      "tx": "0xd1d3421838b6d6d6ecafe5ce4c3b5613bdcf099522a33acb6b341e0a8a86fbe6",
+      "gas": 670124,
       "cu": 233,
       "logs": [
         "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [1]",
@@ -90,8 +90,8 @@
       ]
     },
     "InitializeAccount3 B": {
-      "tx": "0xc2b88293724c3ecd0bb473de9a6a3145e9937f65b38d9063c8b10b05a0031cad",
-      "gas": 669731,
+      "tx": "0xe447cadabfb8eefd23a2c5245739033c65a4d989a2693327c6e1219b2d311378",
+      "gas": 670124,
       "cu": 233,
       "logs": [
         "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [1]",
@@ -100,8 +100,8 @@
       ]
     },
     "MintTo 1.000000 → A": {
-      "tx": "0x8b2345723b03d041129a6247991d2406a7eb4889a49d0a626c6c4e0e239373be",
-      "gas": 683795,
+      "tx": "0x321048b4467d09dcc48ec0c1a4b8dbe5d75219fd775af66c8d947da718ff7b6a",
+      "gas": 684189,
       "cu": 120,
       "logs": [
         "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [1]",
@@ -110,8 +110,8 @@
       ]
     },
     "Transfer 0.250000 A → B": {
-      "tx": "0x27b1e93fbc12e3c2737c7b7fcf377bcbd091be4548210a866208e536b326401d",
-      "gas": 660003,
+      "tx": "0x125579a7f8a43e4acbbb7369328c1f72c0c820165c88cff8e8b9db4b0c2c19e7",
+      "gas": 660397,
       "cu": 76,
       "logs": [
         "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [1]",

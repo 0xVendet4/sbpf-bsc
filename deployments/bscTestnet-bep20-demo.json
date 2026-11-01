@@ -1,0 +1,66 @@
+{
+  "store": "0xc152d6f13d8A783cAa889d14d5DED5629E2Ec692",
+  "steps": {
+    "deposit (rent do mint)": {
+      "tx": "0x7c0872e4f66b74ac84de51e34b390c13507a68a221125b7c26d5cdaf1159b6ee",
+      "gas": 46031
+    },
+    "createAccount mint": {
+      "tx": "0x31234fc0c9d449e7aae5ebb03bd2e58a60b89f3e0df914cd67a92c91d5e37f80",
+      "gas": 102601
+    },
+    "InitializeMint2 (6 casas)": {
+      "tx": "0x8c752876981de2a6692dda09d428509dedd96d71e6529b11b222571f2a876baf",
+      "gas": 559131
+    },
+    "deploy SplBep20": {
+      "tx": "0x7b0d8f0375ad7f2bfb94e319cec12c45b7c3663aa9fdd249f8d9a84d5828d3dd",
+      "gas": 1669809
+    },
+    "setForwarder": {
+      "tx": "0x456da5f89b6ee385d8dd2d6d11c290fd8db65d8a42a5fcb99ef9b6cee2803efd",
+      "gas": 45941
+    },
+    "open (conta SPL da carteira)": {
+      "tx": "0x5bb91706839fcf6311754b8699963d508fca088f0fd35da9559f9ad1afa95999",
+      "gas": 804378
+    },
+    "MintTo 1.000.000 (SPL Token)": {
+      "tx": "0x0c46e33b295bd80c59f6a03f2862106f06f35cda697ab6e963eb7ba5baa6a584",
+      "gas": 684189
+    },
+    "transfer 1.000 para endereço novo": {
+      "tx": "0x926fbc2c37e39a3166e571045e1d1f393f308a169f2ad54a0acf4e5642a0abfc",
+      "gas": 1396971
+    },
+    "approve router": {
+      "tx": "0x3773272d542857bf7013c687b4ddee5a20784b674fce12f5f792392deeae1082",
+      "gas": 46462
+    },
+    "addLiquidityETH": {
+      "tx": "0xb254d85b6fc013e4f98c721043cd7e2bb37653511e0c1940335ec13047fae920",
+      "gas": 3549377
+    },
+    "compra (0,001 tBNB → token)": {
+      "tx": "0x43071dd9a8d74bd131b0a615a3dced441268a27aa2d7af67e5e835fee3a28aad",
+      "gas": 783724
+    },
+    "venda (500 tokens → tBNB)": {
+      "tx": "0x038d06b049915f2bc772ea954169dc5a8092e5a0028387b7310611171e3bb4f9",
+      "gas": 760498
+    }
+  },
+  "keys": {
+    "payer": "0x0000000000000000000000003d4c4ebdeecd265fc744e10c445be9df89361013",
+    "mint": "0x0000000000000000000000c83d4c4ebdeecd265fc744e10c445be9df89361013"
+  },
+  "bep20": "0x4cf52dD6261F342309e206e5F74c13b2b28B9121",
+  "other": "0xfFaf12aF7d45c320863b0a4Dfe0f9d8C261BAFA9",
+  "pair": "0x476BFD8350761ac09FC3Fa046430ff5544b3B2bF",
+  "balances": {
+    "totalSupply": "1000000000000",
+    "me": "907574377159",
+    "other": "1000000000",
+    "pair": "91425622841"
+  }
+}

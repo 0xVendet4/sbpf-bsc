@@ -3,7 +3,8 @@
 **Colocamos a máquina virtual da Solana dentro de um contrato na BSC.** Parte 1: uma VM sBPF v0
 reduzida e o jogo CU Golf. Parte 2 (abaixo): programas Solana compilados de verdade, com contas,
 CPI e PDAs, iguais ao agave, incluindo **o SPL Token oficial da mainnet da Solana publicado e
-rodando na BSC testnet**. **Parte 1:** `SbpfVM.sol` é um
+rodando na BSC testnet**, e um token SPL negociado na PancakeSwap testnet como BEP-20 sem
+deixar de ser SPL (veja "Lance seu SPL na BSC"). **Parte 1:** `SbpfVM.sol` é um
 interpretador de bytecode **sBPF v0** (o formato dos programas Solana) escrito em Solidity. Ele
 executa programas Solana instrução por instrução, on-chain, e o resultado bate bit a bit com a VM
 oficial: **2.024 de 2.024 fixtures gerados pelo `solana-sbpf` são idênticos**, incluindo 1.000
@@ -41,6 +42,7 @@ instrução (metas + dados) ──► SolanaStore.invoke ──► SolanaRuntime
 | `SolanaLog.sol` | Log no formato do agave (`Program … invoke [1]`, `Program log:`, `consumed X of Y compute units`, `failed: …`). |
 | `SolanaLoader.sol` | Carregador de ELF **sBPF v0** (o formato de quase todos os programas da mainnet, como o SPL Token): seções, relocações `R_BPF_64_64`/`64_RELATIVE`/`64_32`, registro de funções por murmur3 e região só leitura **byte a byte iguais ao `Executable::load` do agave**. Roda uma vez, na publicação. |
 | `SolanaStore.sol` | Guarda programas e contas Solana na BSC e processa instruções por transação. Programas grandes sobem em pedaços (`writeProgram`), são carregados em `finalizeProgram` e verificados em `verifyProgram`; a imagem pronta pode ser guardada (`writeImage` + `finalizeImage`, conferida contra a remontagem) para cada instrução não precisar remontá-la. |
+| `SplBep20.sol` | A cara BEP-20 de um mint do SPL Token: `balanceOf` e `totalSupply` lidos do SPL, `transfer` executa o `Transfer` do SPL Token pelo `SolanaStore.invokeAs`. Um supply só, negociável na PancakeSwap. |
 
 **Conferido contra o agave.** `reference-runtime/` roda os mesmos programas no Mollusk 0.16.4
 (agave 4.3, o runtime da mainnet) e grava `fixtures/solana/programs.json`: **65 de 65 cenários
@@ -85,7 +87,56 @@ sem assinatura ou sem saldo, mint inválido ou não inicializado, programa fora 
 inválida e CU acabando dentro do ATA e dentro do SPL Token. Os 15 dão o mesmo erro, CU, log
 (com as linhas do programa chamado), return data e contas finais.
 
-### Na BSC testnet (deploy de 2026-11-01, v3 com CPI entre programas sBPF)
+### Lance seu SPL na BSC: o mesmo token como BEP-20
+
+`SplBep20.sol` dá uma cara BEP-20 a um mint do SPL Token **sem criar um segundo token**. Não tem
+cofre, lock/mint nem ponte: `totalSupply` e `decimals` são lidos do mint SPL, `balanceOf` lê a
+conta de token SPL do endereço, e `transfer`/`transferFrom` executam a instrução `Transfer` do
+binário oficial do SPL Token dentro do `SolanaVM`. Para quem fala Solana é um mint SPL normal
+(MintTo, Burn, Approve, Freeze… pelo `SolanaStore`); para a PancakeSwap, carteiras e outros
+contratos da BSC é um BEP-20. O supply é um só, e ele é o do mint.
+
+```
+PancakeSwap / carteira ──transfer──► SplBep20 ──invokeAs(from, Transfer)──► SolanaStore ──► SPL Token (sBPF v0)
+                       ◄─balanceOf── lê a conta SPL de 165 bytes do endereço ◄──────────────┘
+```
+
+- **Uma conta SPL por endereço.** Na primeira vez que um endereço recebe, o contrato cria a conta
+  SPL dele (`createAccount` + `InitializeAccount3`, dono = a chave Solana do endereço) e paga o
+  rent (2.039.280 wei) com o BNB que recebeu no deploy. Quem já tem uma conta SPL desse mint pode
+  ligá-la com `link`. O dono continua usando a conta direto pelo `SolanaStore`, e o saldo que a
+  PancakeSwap vê muda junto.
+- **Quem assina.** O `SolanaStore` só aceita `invokeAs` de um contrato registrado pela gênese
+  (`setForwarder(contrato, mint)`), e só para a instrução `Transfer` (9 bytes, tag 3) com a conta
+  de origem daquele mint. O `SplBep20` só assina por `from` quando `from` é quem chama ou deu
+  allowance (`approve`, allowance máxima é infinita). Ele não consegue mintar, queimar, congelar
+  nem mexer em outro mint.
+- **Testado contra um par Uniswap v2 de verdade** (`test/Bep20.test.js`, os builds oficiais do
+  `@uniswap/v2-core` e `v2-periphery`, que a PancakeSwap v2 copia): criar o par, adicionar
+  liquidez, comprar e vender, com o saldo do par lido do SPL.
+
+Na BSC testnet, com a PancakeSwap v2 oficial da testnet (`scripts/bep20-demo.js`,
+`deployments/bscTestnet-bep20-demo.json`): mint SPL `11111111111DKA3vUozVA51bUkTt9fhqSHm7ME8i`
+(6 casas, 1.000.000 tokens), BEP-20 [`0x4cf52dD6261F342309e206e5F74c13b2b28B9121`](https://testnet.bscscan.com/address/0x4cf52dD6261F342309e206e5F74c13b2b28B9121),
+par na PancakeSwap [`0x476BFD8350761ac09FC3Fa046430ff5544b3B2bF`](https://testnet.bscscan.com/address/0x476BFD8350761ac09FC3Fa046430ff5544b3B2bF).
+
+| O que | Gás | Tx |
+|---|---|---|
+| Criar o mint SPL (`createAccount` + `InitializeMint2`) | 102,601 + 559,131 | [InitializeMint2](https://testnet.bscscan.com/tx/0x8c752876981de2a6692dda09d428509dedd96d71e6529b11b222571f2a876baf) |
+| Deploy do `SplBep20` "SPL na BSC" (SPLB) | 1,669,809 | [tx](https://testnet.bscscan.com/tx/0x7b0d8f0375ad7f2bfb94e319cec12c45b7c3663aa9fdd249f8d9a84d5828d3dd) |
+| `setForwarder` (gênese registra a cara BEP-20 do mint) | 45,941 | [tx](https://testnet.bscscan.com/tx/0x456da5f89b6ee385d8dd2d6d11c290fd8db65d8a42a5fcb99ef9b6cee2803efd) |
+| `open`: conta SPL da carteira | 804,378 | [tx](https://testnet.bscscan.com/tx/0x5bb91706839fcf6311754b8699963d508fca088f0fd35da9559f9ad1afa95999) |
+| `MintTo` 1.000.000 pelo SPL Token | 684,189 | [tx](https://testnet.bscscan.com/tx/0x0c46e33b295bd80c59f6a03f2862106f06f35cda697ab6e963eb7ba5baa6a584) |
+| `transfer` BEP-20 de 1.000 para um endereço novo (cria a conta SPL dele) | 1,396,971 | [tx](https://testnet.bscscan.com/tx/0x926fbc2c37e39a3166e571045e1d1f393f308a169f2ad54a0acf4e5642a0abfc) |
+| `addLiquidityETH` na PancakeSwap: 100.000 tokens + 0,01 tBNB (cria o par) | 3,549,377 | [tx](https://testnet.bscscan.com/tx/0xb254d85b6fc013e4f98c721043cd7e2bb37653511e0c1940335ec13047fae920) |
+| Compra: 0,001 tBNB → token | 783,724 | [tx](https://testnet.bscscan.com/tx/0x43071dd9a8d74bd131b0a615a3dced441268a27aa2d7af67e5e835fee3a28aad) |
+| Venda: 500 tokens → tBNB | 760,498 | [tx](https://testnet.bscscan.com/tx/0x038d06b049915f2bc772ea954169dc5a8092e5a0028387b7310611171e3bb4f9) |
+
+Saldos finais lidos do mint e das contas SPL: supply 1.000.000, carteira 907.574,377159, endereço
+novo 1.000, par 91.425,622841 (a soma fecha com o supply). Um transfer custa ~0,67–0,76 M de gás
+(≈ 0,00008 BNB a 0,1 gwei), quase tudo o custo fixo de rodar o SPL Token.
+
+### Na BSC testnet (deploy de 2026-11-01, v4: `SolanaStore` com `invokeAs` e imagem v0 guardada)
 
 | Contrato | Endereço |
 |---|---|
@@ -94,20 +145,25 @@ inválida e CU acabando dentro do ATA e dentro do SPL Token. Os 15 dão o mesmo 
 | `SolanaLog` | [`0x1C199a6F74bF88aD9c218553C4AE4a97DB8eFa61`](https://testnet.bscscan.com/address/0x1C199a6F74bF88aD9c218553C4AE4a97DB8eFa61) |
 | `SolanaRuntime` | [`0xC4948B424a41868Bd17181FfD4e3e5bc81d1750B`](https://testnet.bscscan.com/address/0xC4948B424a41868Bd17181FfD4e3e5bc81d1750B) |
 | `SolanaLoader` | [`0xCeA431eEB87d8ECe5255E7d2c7E119a9E4F8abc0`](https://testnet.bscscan.com/address/0xCeA431eEB87d8ECe5255E7d2c7E119a9E4F8abc0) |
-| `SolanaStore` | [`0x9570358F8D8E3938e0d7A6D67d749f064f75183b`](https://testnet.bscscan.com/address/0x9570358F8D8E3938e0d7A6D67d749f064f75183b) |
+| `SolanaStore` | [`0xc152d6f13d8A783cAa889d14d5DED5629E2Ec692`](https://testnet.bscscan.com/address/0xc152d6f13d8A783cAa889d14d5DED5629E2Ec692) |
+
+Só o `SolanaStore` mudou da v3 para a v4 (os outros foram reaproveitados com o mesmo bytecode); o
+Store v3 ([`0x9570358F8D8E3938e0d7A6D67d749f064f75183b`](https://testnet.bscscan.com/address/0x9570358F8D8E3938e0d7A6D67d749f064f75183b)) continua no ar
+(`deployments/bscTestnet-solana-v3.json`, `bscTestnet-token-demo-v2.json`,
+`bscTestnet-ata-demo-v1.json`).
 
 SPL Token publicado e usado de verdade (`deployments/bscTestnet-token-demo.json`):
 
 | O que | CU | Gás | Tx |
 |---|---|---|---|
-| Publicar o SPL Token: 5 pedaços de ≤24 KB | | 4 × ~5,25 M + 2,26 M | [1º pedaço](https://testnet.bscscan.com/tx/0x15af803660d1bba7c3ec67c5e61de0c0044a3104f2f0a1c15f4000f54ab4abda) |
-| `finalizeProgram`: carregar o ELF v0 on-chain | | 3,830,409 | [tx](https://testnet.bscscan.com/tx/0xeeea744a921dcda671f38f1328d46d97913f90bf6374302c3f421302caf2d857) |
-| `verifyProgram`: verificar a imagem e ativar | | 8,741,034 | [tx](https://testnet.bscscan.com/tx/0xe1289b78ed915951eb86b47447bed95f319154665002a8e1953109a79d659817) |
-| Guardar a imagem pronta (5 pedaços + `finalizeImage`) | | 4 × ~5,25 M + 1,71 M + 0,59 M | [finalizeImage](https://testnet.bscscan.com/tx/0xd168ae20865330b446dfdd77de1f04e1e0c283c2008b63032b60cbed48fd7757) |
-| `InitializeMint2` (6 casas) | 202 | 558,751 | [tx](https://testnet.bscscan.com/tx/0xf3b45388d16da597c029451021755e00e05c57198942296fb3988ed69df077d1) |
-| `InitializeAccount3` | 233 | 669,731 | [tx](https://testnet.bscscan.com/tx/0x220d6ca57aef9a12633546f8af90b164d17ed91e7c1f22ec805d93fe1991b97d) |
-| `MintTo` 1,000000 | 120 | 683,795 | [tx](https://testnet.bscscan.com/tx/0x8b2345723b03d041129a6247991d2406a7eb4889a49d0a626c6c4e0e239373be) |
-| `Transfer` 0,250000 de A para B | 76 | 660,003 | [tx](https://testnet.bscscan.com/tx/0x27b1e93fbc12e3c2737c7b7fcf377bcbd091be4548210a866208e536b326401d) |
+| Publicar o SPL Token: 5 pedaços de ≤24 KB | | 4 × ~5,25 M + 2,26 M | [1º pedaço](https://testnet.bscscan.com/tx/0x6eab393b28c5d183d52030453f54f0a14f5cc8bd3299e8f43d3857ceca5f3a5e) |
+| `finalizeProgram`: carregar o ELF v0 on-chain | | 3,830,409 | [tx](https://testnet.bscscan.com/tx/0x4b73c5b18ab978de55d991bdd118383c7632b99333fcde658081faced538d390) |
+| `verifyProgram`: verificar a imagem e ativar | | 8,741,034 | [tx](https://testnet.bscscan.com/tx/0x9dd07de71ff299996effaae2ba2a1936a141ab0edeca05d83f9f753fec7201d7) |
+| Guardar a imagem pronta (5 pedaços + `finalizeImage`) | | 4 × ~5,25 M + 1,71 M + 0,59 M | [finalizeImage](https://testnet.bscscan.com/tx/0x8d85b95db0e53e028b5aad50dfa95364ee5361fa56329f690c44e5f4c80e9373) |
+| `InitializeMint2` (6 casas) | 202 | 559,143 | [tx](https://testnet.bscscan.com/tx/0xde264f2535a9988ee7c79c12fd8afe35dbfbbb08fd14c6c717e210edd64118ca) |
+| `InitializeAccount3` | 233 | 670,124 | [tx](https://testnet.bscscan.com/tx/0xd1d3421838b6d6d6ecafe5ce4c3b5613bdcf099522a33acb6b341e0a8a86fbe6) |
+| `MintTo` 1,000000 | 120 | 684,189 | [tx](https://testnet.bscscan.com/tx/0x321048b4467d09dcc48ec0c1a4b8dbe5d75219fd775af66c8d947da718ff7b6a) |
+| `Transfer` 0,250000 de A para B | 76 | 660,397 | [tx](https://testnet.bscscan.com/tx/0x125579a7f8a43e4acbbb7369328c1f72c0c820165c88cff8e8b9db4b0c2c19e7) |
 
 Saldos finais lidos do `SolanaStore`: supply 1.000.000, A 750.000, B 250.000 (unidades mínimas).
 
@@ -117,12 +173,12 @@ associada `D5eCbAWFkM5FPrSQ92h49MeqcgkZUsShg5xnS6C5Fjnf` da carteira
 
 | O que | CU | Gás | Tx |
 |---|---|---|---|
-| Publicar o ATA: 5 pedaços + `finalizeProgram` + `verifyProgram` | | ~21 M + 9,37 M + 8,37 M | [verifyProgram](https://testnet.bscscan.com/tx/0x59daddd9fc374fce45a2b9fb2e38afe913ea025b91fa1757c5480294b79969b0) |
-| `Create`: 4 CPIs (3 no SPL Token, 1 no system program) | 14,980 | 11,490,959 | [tx](https://testnet.bscscan.com/tx/0x993f4df9ea07c1c6ff4560d22f38705dee9d4f8318de28fcec57a7a4a7347863) |
-| `CreateIdempotent` com a conta já criada | 5,937 | 3,805,992 | [tx](https://testnet.bscscan.com/tx/0xd1a719474aa3be06c4f8eccf0b5ad8052614e643e2bb8ad4fec2bd5f3c626a84) |
-| `Transfer` 0,100000 para a conta associada | 76 | 660,135 | [tx](https://testnet.bscscan.com/tx/0xa77fb408b3dedc30c2b4b13563df4fcab646bd20e7e0f53f27572e4eb88e5ac9) |
+| Publicar o ATA: 5 pedaços + `finalizeProgram` + `verifyProgram` | | ~21 M + 9,37 M + 8,37 M | [verifyProgram](https://testnet.bscscan.com/tx/0xc9818b5af1eef2ca1dbd19488064864d74d29cfe6b1c4c0cbc62ad2fc3377333) |
+| `Create`: 4 CPIs (3 no SPL Token, 1 no system program) | 14,980 | 11,491,673 | [tx](https://testnet.bscscan.com/tx/0xd36356c79b75c161be2447597f34609a75e6000ddd11fabc55eadce90428879b) |
+| `CreateIdempotent` com a conta já criada | 5,937 | 3,806,704 | [tx](https://testnet.bscscan.com/tx/0x6f91511c6620f3ab8d9bcd55ee5c7b75795159989686c7b48d92d7f9fa28aa5e) |
+| `Transfer` 0,100000 para a conta associada | 76 | 660,529 | [tx](https://testnet.bscscan.com/tx/0xdfc2e4ff58ece8205a4d409ac97a6d07bdb52d0c97e46a838fc671a9afc382df) |
 
-Os deploys anteriores continuam no ar: v2 (SPL Token, sem CPI entre programas) em
+Os deploys mais antigos também continuam no ar: v2 (SPL Token, sem CPI entre programas) em
 `deployments/bscTestnet-solana-v2.json` e `bscTestnet-token-demo-v1.json`; v1 (só sBPF v3) em
 `deployments/bscTestnet-solana-v1.json`, com as transações abaixo:
 
@@ -136,7 +192,8 @@ Os deploys anteriores continuam no ar: v2 (SPL Token, sem CPI entre programas) e
 
 Reproduzir: `npx hardhat run scripts/deploy-solana.js --network bscTestnet` (com `REUSE=SolanaVM,…`
 reaproveita contratos já publicados com o mesmo bytecode), depois `scripts/token-demo.js` (SPL
-Token), `scripts/ata-demo.js` (Associated Token Account) e `scripts/solana-demo.js` (programas v3). O cliente mínimo, com chaves, PDAs e as
+Token), `scripts/ata-demo.js` (Associated Token Account), `scripts/bep20-demo.js` (mint SPL
+com cara BEP-20 e pool na PancakeSwap) e `scripts/solana-demo.js` (programas v3). O cliente mínimo, com chaves, PDAs e as
 instruções do SPL Token, está em `scripts/solana-client.js`.
 
 ### Como usar o `SolanaStore`
@@ -155,6 +212,9 @@ instruções do SPL Token, está em `scripts/solana-client.js`.
   instrução e emite `Invoked` com CU, return data e o log; falha reverte com
   `ProgramFailed(err, custom, logs)` (err = índice do `InstructionError` + 1). `simulate(…, signer)`
   roda sem gravar.
+- **Cara BEP-20 de um mint:** a gênese registra um contrato com `setForwarder(contrato, mint)`;
+  ele passa a poder chamar `invokeAs(signer, metas, data)`, que assina por `signer` apenas a
+  instrução `Transfer` do SPL Token de uma conta daquele mint (é o que o `SplBep20` usa).
 
 ### Limites da parte 2
 
@@ -176,6 +236,10 @@ instruções do SPL Token, está em `scripts/solana-client.js`.
 - **Gás:** ~200 k para uma instrução pequena, 0,5–0,8 M com contas e CPI simples, 11,5 M para
   criar uma conta associada (4 CPIs). Publicar um programa custa ~280 gás por byte (SSTORE2 +
   verificação), mais ~210 gás por byte para guardar a imagem pronta de um programa v0.
+- **Cara BEP-20.** Cada endereço tem uma conta SPL simples (não a associada), criada pelo
+  `SplBep20` no primeiro recebimento (~1,4 M de gás nessa vez). Contas congeladas aparecem com o
+  saldo, mas o transfer falha como no SPL Token. `setForwarder` é da gênese: na mainnet isso
+  precisa de governança ou de uma fábrica sem dono.
 - **Não auditado.** Testnet apenas. A mainnet (parte 3) usa carteira nova.
 
 ## Parte 1 na BSC testnet (chain 97)
@@ -461,10 +525,10 @@ done:
 
 ## Próximos passos
 
-0. "Lance seu SPL na BSC": uma cara BEP-20 sobre o mesmo mint SPL (`balanceOf` lê a conta de
-   token, `transfer` roda o Transfer do SPL Token; um supply só, sem cofre), para o token ser
-   negociado na PancakeSwap. Depois: menos custo fixo por instrução (não copiar a imagem entre os
-   contratos), prova de fraude com memória em Merkle para a VM v3, exemplo Anchor.
+0. "Lance seu SPL na BSC" como produto: uma fábrica sem dono que cria mint + cara BEP-20 numa
+   transação (hoje o `setForwarder` é da gênese), página para lançar e negociar, revisão de
+   segurança antes da mainnet. Depois: menos custo fixo por instrução (não copiar a imagem entre
+   os contratos), prova de fraude com memória em Merkle para a VM v3, exemplo Anchor.
 1. Verificar os contratos no BscScan (deploy na testnet feito; falta a verificação, ver acima).
 2. Gás: ~530 → meta 300–400 por instrução (despacho por tabela de saltos em Yul, menos `byte()` na
    decodificação, registradores r0..r3 em variáveis).

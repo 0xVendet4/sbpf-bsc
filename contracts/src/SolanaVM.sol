@@ -185,17 +185,44 @@ contract SolanaVM {
             r.status = Status.Invalid;
             return r;
         }
-        return run(elf[textOff:textOff + textLen], entry, elf[roOff:roOff + roLen], input, env);
+        return _run(elf[textOff:textOff + textLen], uint256(entry) | (1 << 64), elf[roOff:roOff + roLen], input, env);
+    }
+
+    /// @notice Como `runElf`, mas sem passar o verificador: só para ELFs já aceites por
+    ///         `verifyElf` (o verificador custa ~700 gás por instrução do programa inteiro).
+    function runElfVerified(bytes calldata elf, Region[] calldata input, Env calldata env) external pure returns (Result memory r) {
+        (bool ok, uint256 textOff, uint256 textLen, uint256 roOff, uint256 roLen, uint64 entry) = parseElf(elf);
+        if (!ok) {
+            r.status = Status.Invalid;
+            return r;
+        }
+        return _run(elf[textOff:textOff + textLen], entry, elf[roOff:roOff + roLen], input, env);
+    }
+
+    /// @notice Carrega o ELF e verifica o bytecode (o que o loader do Solana faz uma vez, ao publicar).
+    function verifyElf(bytes calldata elf) external pure returns (bool) {
+        (bool ok, uint256 textOff, uint256 textLen, , , uint64 entry) = parseElf(elf);
+        return ok && entry < textLen / 8 && verify(elf[textOff:textOff + textLen]);
     }
 
     /// @notice Executa bytecode sBPF v3 já extraído: `text` é verificado; `rodata` é mapeado em 0.
     function run(bytes calldata text, uint64 entry, bytes calldata rodata, Region[] calldata input, Env calldata env)
-        public
+        external
+        pure
+        returns (Result memory r)
+    {
+        return _run(text, uint256(entry) | (1 << 64), rodata, input, env);
+    }
+
+    /// @dev `entryAndCheck` = entry | (verificar ? 1 << 64 : 0).
+    function _run(bytes calldata text, uint256 entryAndCheck, bytes calldata rodata, Region[] calldata input, Env calldata env)
+        private
         pure
         returns (Result memory r)
     {
         uint256 n = text.length / 8;
-        if (!verify(text) || entry >= n) {
+        uint256 entry = entryAndCheck & MASK64; // máscara explícita: o assembly abaixo lê a variável sem limpeza
+        if (entry >= n || (entryAndCheck >> 64 != 0 && !verify(text))) {
             r.status = Status.Invalid;
             return r;
         }
@@ -466,9 +493,9 @@ contract SolanaVM {
         assembly ("memory-safe") {
             calldatacopy(p, rodata.offset, rodata.length)
         }
-        _region(vm, 0, RODATA_START, rodata.length, p, false, rodata.length);
-        _region(vm, 1, STACK_START, STACK_SIZE, _alloc(STACK_SIZE), true, STACK_SIZE);
-        _region(vm, 2, HEAP_START, HEAP_SIZE, _alloc(HEAP_SIZE), true, HEAP_SIZE);
+        _region(vm, 0, RODATA_START, rodata.length, p, 0, rodata.length);
+        _region(vm, 1, STACK_START, STACK_SIZE, 0, 3, STACK_SIZE); // esparsa: 256 KiB endereçáveis, alocados ao tocar
+        _region(vm, 2, HEAP_START, HEAP_SIZE, 0, 3, HEAP_SIZE);
         uint256 prev = HEAP_START + HEAP_SIZE;
         for (uint256 i = 0; i < input.length; i++) {
             Region calldata rg = input[i];
@@ -487,7 +514,7 @@ contract SolanaVM {
             assembly ("memory-safe") {
                 calldatacopy(p, d.offset, len)
             }
-            _region(vm, 3 + i, start, len, p, rg.writable, reserved);
+            _region(vm, 3 + i, start, len, p, rg.writable ? 1 : 0, reserved);
             prev = start + len;
         }
         uint256 logs = _alloc(LOG_CAPACITY);
@@ -512,13 +539,15 @@ contract SolanaVM {
         }
     }
 
-    function _region(uint256 vm, uint256 i, uint256 start, uint256 len, uint256 host, bool writable, uint256 reserved) private pure {
+    /// @dev Entrada da tabela de regiões. `flags`: bit0 gravável, bit1 esparsa (pilha e heap: a memória
+    ///      da EVM só é alocada quando o programa toca; `flags >> 64` guarda os bytes já alocados).
+    function _region(uint256 vm, uint256 i, uint256 start, uint256 len, uint256 host, uint256 flags, uint256 reserved) private pure {
         assembly ("memory-safe") {
             let e := add(add(vm, REGTAB), mul(i, 160))
             mstore(e, start)
             mstore(add(e, 32), len)
             mstore(add(e, 64), host)
-            mstore(add(e, 96), writable)
+            mstore(add(e, 96), flags)
             mstore(add(e, 128), reserved)
         }
     }
@@ -556,14 +585,43 @@ contract SolanaVM {
                 }
                 if lo { e := add(add(vm_, REGTAB), mul(sub(lo, 1), 160)) }
             }
+            // região esparsa: garante que [0, end) está alocado na memória da EVM (dobra, mínimo 8 KiB)
+            function touch(e, end) {
+                let fl := mload(add(e, 96))
+                if and(fl, 2) {
+                    let cap := shr(64, fl)
+                    if gt(end, cap) {
+                        let ncap := shl(1, cap)
+                        if lt(ncap, 8192) { ncap := 8192 }
+                        if lt(ncap, end) { ncap := and(add(end, 8191), not(8191)) }
+                        if gt(ncap, mload(add(e, 32))) { ncap := mload(add(e, 32)) }
+                        let p := mload(0x40)
+                        mstore(0x40, add(p, ncap))
+                        calldatacopy(p, calldatasize(), ncap)
+                        mcopy(p, mload(add(e, 64)), cap)
+                        mstore(add(e, 64), p)
+                        mstore(add(e, 96), or(and(fl, 3), shl(64, ncap)))
+                    }
+                }
+            }
             // em caso de falha, registram o acesso em vm+FAULT (vaddr | size << 64 | escrita << 128)
             function load(vm_, vaddr, size) -> ok, w {
                 let e := find(vm_, vaddr)
                 if e {
                     let off := sub(vaddr, mload(e))
-                    if iszero(gt(add(off, size), mload(add(e, 32)))) {
+                    let end := add(off, size)
+                    if iszero(gt(end, mload(add(e, 32)))) {
                         ok := 1
-                        w := mload(add(mload(add(e, 64)), off))
+                        let fl := mload(add(e, 96))
+                        switch and(and(shr(1, fl), 1), gt(end, shr(64, fl)))
+                        case 0 { w := mload(add(mload(add(e, 64)), off)) }
+                        default {
+                            // esparsa e ainda não alocada: lê zero; se cruza o alocado, aloca
+                            if lt(off, shr(64, fl)) {
+                                touch(e, end)
+                                w := mload(add(mload(add(e, 64)), off))
+                            }
+                        }
                     }
                 }
                 if iszero(ok) { mstore(add(vm_, FAULT), or(vaddr, shl(64, size))) }
@@ -581,6 +639,7 @@ contract SolanaVM {
                             default { mstore(add(e, 32), mload(add(e, 128))) } // cresce até o reservado
                         }
                         if ok {
+                            touch(e, end)
                             let p := add(mload(add(e, 64)), off)
                             for { let i := 0 } lt(i, size) { i := add(i, 1) } { mstore8(add(p, i), byte(sub(31, i), value)) }
                         }
@@ -969,7 +1028,24 @@ contract SolanaVM {
                     case 1 { mstore(add(e, 32), mload(add(e, 128))) }
                     default { ok := 0 }
                 }
-                if ok { host := add(mload(add(e, 64)), off) }
+                if ok {
+                    // região esparsa (pilha/heap): aloca até `end` antes de entregar o ponteiro
+                    let fl := mload(add(e, 96))
+                    if and(and(shr(1, fl), 1), gt(end, shr(64, fl))) {
+                        let cap := shr(64, fl)
+                        let ncap := shl(1, cap)
+                        if lt(ncap, 8192) { ncap := 8192 }
+                        if lt(ncap, end) { ncap := and(add(end, 8191), not(8191)) }
+                        if gt(ncap, mload(add(e, 32))) { ncap := mload(add(e, 32)) }
+                        let p := mload(0x40)
+                        mstore(0x40, add(p, ncap))
+                        calldatacopy(p, calldatasize(), ncap)
+                        mcopy(p, mload(add(e, 64)), cap)
+                        mstore(add(e, 64), p)
+                        mstore(add(e, 96), or(and(fl, 3), shl(64, ncap)))
+                    }
+                    host := add(mload(add(e, 64)), off)
+                }
             }
             // bit 129: falha dentro de uma syscall (o agave não esgota o medidor nesse caso)
             if iszero(host) { mstore(add(vm, FAULT), or(or(vaddr, shl(64, len)), or(shl(128, write), shl(129, 1)))) }

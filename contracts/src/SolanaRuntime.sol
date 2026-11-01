@@ -181,8 +181,18 @@ contract SolanaRuntime {
 
     /// @notice Processa uma instrução do programa `elf` como o loader do agave faria.
     function invoke(bytes calldata elf, Call calldata c) external view returns (Outcome memory o) {
+        return _invoke(elf, c, true);
+    }
+
+    /// @notice Como `invoke`, para um ELF já verificado com `SolanaVM.verifyElf` (poupa o verificador).
+    function invokeVerified(bytes calldata elf, Call calldata c) external view returns (Outcome memory o) {
+        return _invoke(elf, c, false);
+    }
+
+    function _invoke(bytes calldata elf, Call calldata c, bool check) private view returns (Outcome memory o) {
         Ser memory s = serialize(c);
-        SolanaVM.Result memory r = vm.runElf(elf, s.regions, SolanaVM.Env(c.programId, c.maxCu, s.ixDataAddr, c.sysvars));
+        SolanaVM.Env memory env = SolanaVM.Env(c.programId, c.maxCu, s.ixDataAddr, c.sysvars);
+        SolanaVM.Result memory r = check ? vm.runElf(elf, s.regions, env) : vm.runElfVerified(elf, s.regions, env);
         o.accounts = c.accounts;
         o.returnData = r.returnData;
         o.cu = r.cu;
@@ -469,7 +479,7 @@ contract SolanaRuntime {
     }
 
     function _u64(bytes memory b, uint256 off) private pure returns (uint64 v) {
-        for (uint256 i = 0; i < 8; i++) v |= uint64(uint8(b[off + i])) << (8 * i);
+        for (uint256 i = 0; i < 8; i++) v |= uint64(uint8(b[off + i])) << uint64(8 * i);
     }
 
     function _b32(bytes memory b, uint256 off) private pure returns (bytes32 v) {

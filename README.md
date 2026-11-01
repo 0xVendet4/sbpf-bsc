@@ -15,6 +15,24 @@ programs/*.s ──assembler do solana-sbpf──► bytecode ──► referenc
                                                  └──► contracts/src/SbpfVM.sol (EVM) ◄── teste diferencial
 ```
 
+## Na BSC testnet (chain 97)
+
+Deploy feito em 2026-11-01 por `0x3D4c4eBDeeCd265FC744E10c445be9Df89361013` (custo total ≈ 0,0007 tBNB
+a 0,1 gwei). Endereços, argumentos do construtor e versão do compilador em
+[`deployments/bscTestnet.json`](deployments/bscTestnet.json).
+
+| Contrato | Endereço |
+|---|---|
+| `SbpfVM` | [`0x5B6B8f64280F5f2536d87991404a7Bc4a542cFcF`](https://testnet.bscscan.com/address/0x5B6B8f64280F5f2536d87991404a7Bc4a542cFcF) |
+| `GolfToken` (GOLF) | [`0x504DA7102aB8D80ce230e4d9B22a85EDc4A1E86a`](https://testnet.bscscan.com/address/0x504DA7102aB8D80ce230e4d9B22a85EDc4A1E86a) |
+| `SbpfGolf` | [`0x49d408c048e7C1779b74afe6D28E7071FB1FAf8C`](https://testnet.bscscan.com/address/0x49d408c048e7C1779b74afe6D28E7071FB1FAf8C) |
+| `BountyBoard` | [`0x825d52e6315a1A3D1775CF278Da6E7741bF61640`](https://testnet.bscscan.com/address/0x825d52e6315a1A3D1775CF278Da6E7741bF61640) |
+
+Parâmetros: taxa de entrada 10 GOLF (50% queimada), 100 rodadas grátis, commit 400 blocos, reveal
+200 blocos, taxa de bounty 5 GOLF. `GolfToken.minter` = `SbpfGolf`; `SbpfGolf.bountyBoard` =
+`BountyBoard`. Rodada 1: tarefa 1 (popcount). O bytecode on-chain confere com os artefatos locais
+(tamanho e hash de metadados).
+
 ## Números reais
 
 | | |
@@ -162,7 +180,7 @@ cd reference && cargo run --release        # grava ../fixtures/*.json (1000 alea
 cd ..
 
 # 2. Contratos e testes (Node 22)
-npm install
+npm install                                # .npmrc liga legacy-peer-deps (conflito de peer do hardhat-chai-matchers)
 npm test                                   # 15 testes: diferencial (5 conjuntos), golf, bounty
 npm run gas                                # tabela de gás
 
@@ -173,10 +191,19 @@ USE_SOLCJS=1 npm test
 Deploy na BSC testnet:
 
 ```bash
-export PRIVATE_KEY=0x...        # carteira com tBNB
-npx hardhat run scripts/deploy.js --network bscTestnet
+export PRIVATE_KEY=0x...        # carteira com tBNB (RPC padrão: bsc-testnet-rpc.publicnode.com; troque com BSC_TESTNET_RPC)
+npx hardhat run scripts/deploy.js --network bscTestnet          # grava deployments/bscTestnet.json
+ETHERSCAN_API_KEY=... npx hardhat run scripts/verify.js --network bscTestnet
 GOLF=0x... PROGRAM=programs/isqrt.s npx hardhat run scripts/play.js --network bscTestnet   # commit; depois reveal; depois finalize
 ```
+
+Verificação no BscScan: a chave da Etherscan API V2 serve para a BSC, mas o plano grátis não cobre
+essa chain ("Free API access is not supported for this chain"). Sem plano pago, use o formulário
+em `testnet.bscscan.com/verifyContract` para cada endereço: tipo *Solidity (Standard-Json-Input)*,
+compilador `v0.8.28+commit.7893614a`, licença MIT, arquivo
+[`deployments/verify/standard-input.json`](deployments/verify/standard-input.json) (o mesmo para os
+quatro), nome do contrato `contracts/src/<Nome>.sol:<Nome>` e, para `SbpfGolf` e `BountyBoard`, os
+argumentos do construtor de `constructorArgsAbiEncoded` em `deployments/bscTestnet.json`.
 
 Escrevendo um programa (sintaxe do assembler do `solana-sbpf`; `;` inicia comentário):
 
@@ -209,7 +236,7 @@ done:
 
 ## Próximos passos
 
-1. Rodar na BSC testnet e verificar os contratos no explorer (M5/M6).
+1. Verificar os contratos no BscScan (deploy na testnet feito; falta a verificação, ver acima).
 2. Gás: ~530 → meta 300–400 por instrução (despacho por tabela de saltos em Yul, menos `byte()` na
    decodificação, registradores r0..r3 em variáveis).
 3. Fase 2: mini-EVM como programa Solana (referência `revm`, mesma metodologia).

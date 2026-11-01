@@ -1,5 +1,6 @@
 require("@nomicfoundation/hardhat-ethers");
 require("@nomicfoundation/hardhat-chai-matchers");
+require("@nomicfoundation/hardhat-verify");
 
 const accounts = process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [];
 
@@ -14,12 +15,15 @@ module.exports = {
   networks: {
     hardhat: { blockGasLimit: 140_000_000 },
     bscTestnet: {
-      url: process.env.BSC_TESTNET_RPC || "https://data-seed-prebsc-1-s1.bnbchain.org:8545",
+      url: process.env.BSC_TESTNET_RPC || "https://bsc-testnet-rpc.publicnode.com",
       chainId: 97,
       accounts,
     },
     bsc: { url: process.env.BSC_RPC || "https://bsc-dataseed.bnbchain.org", chainId: 56, accounts },
   },
+  // Etherscan API V2: uma chave só (etherscan.io) vale para BscScan, chainid 97/56.
+  etherscan: { apiKey: process.env.ETHERSCAN_API_KEY || "" },
+  sourcify: { enabled: false },
 };
 
 // Sem acesso a binaries.soliditylang.org (ambiente restrito): USE_SOLCJS=1 usa o solc-js do npm,

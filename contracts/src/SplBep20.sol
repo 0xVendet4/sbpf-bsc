@@ -15,9 +15,16 @@ import {SolanaRuntime} from "./SolanaRuntime.sol";
 ///      conta existente ligada com `link`. O dono da conta continua podendo usá-la direto pelo
 ///      SolanaStore. O Store só deixa este contrato assinar Transfer de contas deste mint
 ///      (`forwarderMint`), e ele só assina por `from` quando `from` é quem chama ou deu allowance.
+///
+///      Ponte (opcional): para o token existir também na Solana, uma ponte de queima e cunhagem (por
+///      exemplo o MintBurnOFTAdapter da LayerZero) chama `mint`/`burn` aqui. Quem assina a autoridade
+///      de mint do SPL escolhe a ponte com `setBridge` e depois passa a autoridade para
+///      `store.keyOf(este contrato)` (SetAuthority do SPL Token): a partir daí só a ponte cunha e a
+///      escolha não muda mais, porque ninguém além deste contrato assina aquela chave.
 contract SplBep20 {
     SolanaStore public immutable store;
-    bytes32 public immutable mint;
+    /// @notice O mint do SPL Token (chave de 32 bytes no SolanaStore).
+    bytes32 public immutable splMint;
     string public name;
     string public symbol;
 
@@ -30,20 +37,25 @@ contract SplBep20 {
     mapping(address => mapping(address => uint256)) public allowance;
     /// @notice Contas SPL criadas por este contrato.
     uint96 public created;
+    /// @notice Ponte que pode cunhar e queimar (0 = nenhuma).
+    address public bridge;
 
     event Transfer(address indexed from, address indexed to, uint256 value);
     event Approval(address indexed owner, address indexed spender, uint256 value);
     event Linked(address indexed holder, bytes32 indexed account);
+    event BridgeSet(address indexed bridge);
 
     error InsufficientBalance(uint256 balance, uint256 needed);
     error InsufficientAllowance(uint256 allowance, uint256 needed);
     error AmountTooLarge();
     error BadAccount(bytes32 account);
+    error NotBridge();
+    error NotMintAuthority();
 
     /// @dev O BNB enviado paga o rent das contas novas (lamports = wei; 2.039.280 wei por conta).
     constructor(SolanaStore store_, bytes32 mint_, string memory name_, string memory symbol_) payable {
         store = store_;
-        mint = mint_;
+        splMint = mint_;
         name = name_;
         symbol = symbol_;
         bytes memory d = _data(mint_);
@@ -55,11 +67,11 @@ contract SplBep20 {
     // ------------------------------------------------------------------ leitura (do SPL)
 
     function decimals() external view returns (uint8) {
-        return uint8(_data(mint)[44]);
+        return uint8(_data(splMint)[44]);
     }
 
     function totalSupply() external view returns (uint256) {
-        return _u64(_data(mint), 36);
+        return _u64(_data(splMint), 36);
     }
 
     /// @notice Saldo da conta SPL do endereço (0 se ela mudou de dono ou de mint fora daqui).
@@ -109,9 +121,65 @@ contract SplBep20 {
         emit Linked(msg.sender, account);
     }
 
+    // ------------------------------------------------------------------ ponte (queima e cunhagem)
+
+    /// @notice Autoridade de mint do SPL (0 = nenhuma: supply fixo).
+    function mintAuthority() public view returns (bytes32) {
+        bytes memory d = _data(splMint);
+        return d[0] == 0x01 ? _b32(d, 4) : bytes32(0); // COption<Pubkey>: tag u32 + chave
+    }
+
+    /// @notice Escolhe a ponte. Só quem assina a autoridade de mint do SPL; depois que a autoridade
+    ///         passa para este contrato, a ponte fica fixa.
+    function setBridge(address bridge_) external {
+        bytes32 a = mintAuthority();
+        if (a == 0 || !store.signs(a, msg.sender)) revert NotMintAuthority();
+        bridge = bridge_;
+        emit BridgeSet(bridge_);
+    }
+
+    /// @notice Cunha `value` para `to` com o MintTo do SPL Token (só a ponte; este contrato precisa
+    ///         ser a autoridade de mint).
+    function mint(address to, uint256 value) external returns (bool) {
+        if (msg.sender != bridge) revert NotBridge();
+        if (value > type(uint64).max) revert AmountTooLarge();
+        if (value != 0) {
+            bytes32 dst = _open(to);
+            SolanaStore.AccountMeta[] memory m = new SolanaStore.AccountMeta[](3);
+            m[0] = SolanaStore.AccountMeta(splMint, false, true);
+            m[1] = SolanaStore.AccountMeta(dst, false, true);
+            m[2] = SolanaStore.AccountMeta(store.keyOf(address(this)), true, false);
+            store.invoke(TOKEN_PROGRAM, m, abi.encodePacked(uint8(7), _le64(uint64(value))), 0); // MintTo
+        }
+        emit Transfer(address(0), to, value);
+        return true;
+    }
+
+    /// @notice Queima `value` de `from` (só a ponte): Transfer do SPL para a conta deste contrato e
+    ///         Burn dela, porque o Store só deixa este contrato assinar Transfer pelos usuários.
+    function burn(address from, uint256 value) external returns (bool) {
+        if (msg.sender != bridge) revert NotBridge();
+        if (value != 0) {
+            _send(from, address(this), value);
+            SolanaStore.AccountMeta[] memory m = new SolanaStore.AccountMeta[](3);
+            m[0] = SolanaStore.AccountMeta(accountOf[address(this)], false, true);
+            m[1] = SolanaStore.AccountMeta(splMint, false, true);
+            m[2] = SolanaStore.AccountMeta(store.keyOf(address(this)), true, false);
+            store.invoke(TOKEN_PROGRAM, m, abi.encodePacked(uint8(8), _le64(uint64(value))), 0); // Burn
+        }
+        emit Transfer(from, address(0), value);
+        return true;
+    }
+
     // ------------------------------------------------------------------ interno
 
     function _move(address from, address to, uint256 value) private {
+        _send(from, to, value);
+        emit Transfer(from, to, value);
+    }
+
+    /// @dev Transfer do SPL Token de `from` para `to`, assinado por `from` através do Store.
+    function _send(address from, address to, uint256 value) private {
         if (value > type(uint64).max) revert AmountTooLarge();
         uint256 bal = balanceOf(from);
         if (bal < value) revert InsufficientBalance(bal, value);
@@ -123,7 +191,6 @@ contract SplBep20 {
             m[2] = SolanaStore.AccountMeta(store.keyOf(from), true, false);
             store.invokeAs(from, m, abi.encodePacked(uint8(3), _le64(uint64(value)))); // SPL Token Transfer
         }
-        emit Transfer(from, to, value);
     }
 
     /// @dev Conta SPL do endereço; se não existe, cria (system program) e inicializa (InitializeAccount3).
@@ -137,7 +204,7 @@ contract SplBep20 {
         store.createAccount(payer, k, RENT, ACCOUNT_LEN, TOKEN_PROGRAM);
         SolanaStore.AccountMeta[] memory m = new SolanaStore.AccountMeta[](2);
         m[0] = SolanaStore.AccountMeta(k, false, true);
-        m[1] = SolanaStore.AccountMeta(mint, false, false);
+        m[1] = SolanaStore.AccountMeta(splMint, false, false);
         store.invoke(TOKEN_PROGRAM, m, abi.encodePacked(uint8(18), store.keyOf(holder)), 0); // InitializeAccount3
         accountOf[holder] = k;
         emit Linked(holder, k);
@@ -145,7 +212,7 @@ contract SplBep20 {
 
     /// @dev Conta de token deste mint, inicializada (ou congelada), com dono `keyOf(holder)`.
     function _valid(bytes memory d, address holder) private view returns (bool) {
-        return d.length == ACCOUNT_LEN && bytes32(d) == mint && _b32(d, 32) == store.keyOf(holder) && (d[108] == 0x01 || d[108] == 0x02);
+        return d.length == ACCOUNT_LEN && bytes32(d) == splMint && _b32(d, 32) == store.keyOf(holder) && (d[108] == 0x01 || d[108] == 0x02);
     }
 
     function _data(bytes32 key) private view returns (bytes memory) {

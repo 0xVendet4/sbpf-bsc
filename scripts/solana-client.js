@@ -131,6 +131,9 @@ const token = {
   transferChecked: (amount, decimals) => ixData([12], u64le(amount), [decimals]),
   /// Burn { amount } — contas: [conta (w), mint (w), dono (s)]
   burn: (amount) => ixData([8], u64le(amount)),
+  /// SetAuthority { tipo, nova autoridade } — contas: [mint ou conta (w), autoridade atual (s)].
+  /// tipo: 0 MintTokens, 1 FreezeAccount, 2 AccountOwner, 3 CloseAccount; `null` remove a autoridade.
+  setAuthority: (type, authority) => ixData([6, type], authority ? [1, ...ethers.getBytes(authority)] : [0]),
 };
 /// Saldo de uma conta de token (u64 no offset 64 dos 165 bytes).
 function tokenAmount(data) {

@@ -535,10 +535,12 @@ done:
 
 ## Próximos passos
 
-0. "Lance seu SPL na BSC" como produto: uma fábrica sem dono que cria mint + cara BEP-20 numa
-   transação (hoje o `setForwarder` é da gênese), página para lançar e negociar, revisão de
-   segurança antes da mainnet. Depois: menos custo fixo por instrução (não copiar a imagem entre
-   os contratos), prova de fraude com memória em Merkle para a VM v3, exemplo Anchor.
+0. O token SPL negociado na PancakeSwap fica como demonstração: o produto "lance seu SPL na BSC"
+   foi deixado de lado em 2026-11-11, porque o token vive só na BSC e não aparece na rede Solana.
+   Se for retomado, antes da mainnet faltam uma fábrica sem dono (hoje o `setForwarder` é da
+   gênese, que consegue autorizar um contrato a mover tokens de qualquer holder) e uma revisão de
+   segurança. Na tecnologia: menos custo fixo por instrução (não copiar a imagem entre os
+   contratos), prova de fraude com memória em Merkle para a VM v3, exemplo Anchor.
 1. Verificar os contratos no BscScan (deploy na testnet feito; falta a verificação, ver acima).
 2. Gás: ~530 → meta 300–400 por instrução (despacho por tabela de saltos em Yul, menos `byte()` na
    decodificação, registradores r0..r3 em variáveis).

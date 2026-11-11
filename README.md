@@ -43,7 +43,7 @@ instrução (metas + dados) ──► SolanaStore.invoke ──► SolanaRuntime
 | `SolanaLoader.sol` | Carregador de ELF **sBPF v0** (o formato de quase todos os programas da mainnet, como o SPL Token): seções, relocações `R_BPF_64_64`/`64_RELATIVE`/`64_32`, registro de funções por murmur3 e região só leitura **byte a byte iguais ao `Executable::load` do agave**. Roda uma vez, na publicação. |
 | `SolanaStore.sol` | Guarda programas e contas Solana na BSC e processa instruções por transação. Programas grandes sobem em pedaços (`writeProgram`), são carregados em `finalizeProgram` e verificados em `verifyProgram`; a imagem pronta pode ser guardada (`writeImage` + `finalizeImage`, conferida contra a remontagem) para cada instrução não precisar remontá-la. |
 | `SplBep20.sol` | A cara BEP-20 de um mint do SPL Token: `balanceOf` e `totalSupply` lidos do SPL, `transfer` executa o `Transfer` do SPL Token pelo `SolanaStore.invokeAs`. Um supply só, negociável na PancakeSwap. |
-| `SplOftAdapter.sol` | Ponte de queima e cunhagem do `SplBep20`: o `MintBurnOFTAdapter` da LayerZero, para o mesmo token existir na Solana e na BSC. |
+| `SplOftAdapter.sol` | Cofre da ponte do `SplBep20`, sem mint e sem burn: o `OFTAdapter` (trava e libera) da LayerZero, para o mesmo token existir na Solana e na BSC. |
 
 **Conferido contra o agave.** `reference-runtime/` roda os mesmos programas no Mollusk 0.16.4
 (agave 4.3, o runtime da mainnet) e grava `fixtures/solana/programs.json`: **65 de 65 cenários
@@ -142,34 +142,36 @@ BEP-20 só reflete (as duas últimas linhas da tabela). Como essas mudanças nã
 contrato BEP-20, elas não geram evento `Transfer` dele. Um transfer custa ~0,67–0,76 M de gás
 (≈ 0,00008 BNB a 0,1 gwei), quase tudo o custo fixo de rodar o SPL Token.
 
-#### Ponte para a Solana (lado da BSC pronto, lado da Solana por fazer)
+#### Ponte para a Solana, sem mint e sem burn (lado da BSC pronto, lado da Solana por fazer)
 
-Um token criado aqui vive só na BSC. Para ele existir também na Solana (Phantom, Raydium), o
-caminho é uma ponte nativa de queima e cunhagem: o token nasce na Solana como mint SPL de verdade,
-quem atravessa queima de um lado e recebe do outro, e o supply somado das duas redes não muda. O
-`SplBep20` já aceita essa ponte:
+Um token criado aqui vive só na BSC. Para ele existir também na Solana (Phantom, Raydium) é preciso
+uma ponte, porque são dois livros separados. O desenho escolhido é **trava e libera**, sem cunhar
+nem queimar nada depois do lançamento:
 
-- `setBridge(ponte)` só pode ser chamado por quem assina a autoridade de mint do SPL. Em seguida o
-  dono passa a autoridade de mint para `store.keyOf(SplBep20)` com o `SetAuthority` do SPL Token.
-  Daí em diante só a ponte cunha na BSC e a escolha não muda mais, porque ninguém além do contrato
-  assina aquela chave.
-- `mint(para, valor)` executa o `MintTo` do SPL Token assinado pelo contrato. `burn(de, valor)`
-  executa um `Transfer` para a conta do próprio contrato e o `Burn` dela (o Store só deixa o
-  contrato assinar `Transfer` pelos usuários).
-- `SplOftAdapter.sol` é o `MintBurnOFTAdapter` da LayerZero (`@layerzerolabs/oft-evm` 4.0.1) sem
-  lógica nossa: ao enviar chama `burn`, ao receber chama `mint`. Outras pontes de queima e
-  cunhagem (Wormhole NTT, Chainlink CCIP) pedem a mesma interface.
+1. O supply inteiro é criado uma única vez em cada rede e a autoridade de mint do SPL é revogada
+   nas duas (`SetAuthority` para nenhuma).
+2. Na BSC, o supply nasce todo trancado no cofre da ponte.
+3. Atravessar tranca o token no cofre de um lado e libera o mesmo valor do cofre do outro.
 
-Testado localmente (`test/Bridge.test.js`): o adaptador oficial ligado a um OFT comum de 9 casas,
-que faz o papel do token na Solana, por um endpoint de teste. Receber pela ponte custa 0,75 M de
-gás (1,47 M quando cria a conta SPL de quem recebe) e enviar custa 1,35 M (2,07 M no primeiro
-envio, que abre a conta de passagem do contrato). O `lzReceive` na BSC precisa então de ~2 M de
-gás configurados na LayerZero.
+O que circula somando as duas redes é sempre o supply original, dos dois lados o token é SPL de
+verdade, e os cofres nunca ficam sem saldo: o que um precisa liberar já foi trancado no outro. Uma
+ponte comprometida não consegue criar token novo; o máximo que sai é o que está no cofre.
 
-**O que falta:** o lado da Solana de verdade (programa OFT publicado na devnet e o mint SPL) e o
-teste de ponta a ponta entre a devnet e a BSC testnet. Aviso honesto: com ponte, um BEP-20 comum
-faria o mesmo papel na BSC gastando cerca de 10 vezes menos gás; o que este desenho acrescenta é
-que os programas Solana do token rodam na BSC com o mesmo token.
+`SplOftAdapter.sol` é o cofre do lado da BSC: o `OFTAdapter` da LayerZero
+(`@layerzerolabs/oft-evm` 4.0.1) sem lógica nossa. Ele só usa `transferFrom` e `transfer` do
+`SplBep20`, que continua sem nenhuma função de mint ou burn.
+
+Testado localmente (`test/Bridge.test.js`): o adaptador oficial dos dois lados, com um token de
+supply fixo e 9 casas fazendo o papel da Solana, ligados por um endpoint de teste. O supply inteiro
+atravessa para a BSC e volta, com o total de cada rede e o circulante somado conferidos a cada
+passo. Receber pela ponte custa 0,74 M de gás (1,50 M quando cria a conta SPL de quem recebe) e
+enviar custa 0,78 M. O `lzReceive` na BSC precisa então de ~2 M de gás configurados na LayerZero.
+
+**O que falta:** o lado da Solana de verdade (programa OFT publicado na devnet, no modo adaptador,
+e o mint SPL) e o teste de ponta a ponta entre a devnet e a BSC testnet. Pontos de atenção: cada
+rede mostra o supply cheio no explorador, com a parte trancada parada no cofre; e, com ponte, um
+BEP-20 comum faria o mesmo papel na BSC gastando cerca de 10 vezes menos gás. O que este desenho
+acrescenta é que os programas Solana do token rodam na BSC com o mesmo token.
 
 ### Na BSC testnet (deploy de 2026-11-01, v4: `SolanaStore` com `invokeAs` e imagem v0 guardada)
 
@@ -560,8 +562,8 @@ done:
 
 ## Próximos passos
 
-0. Ponte para a Solana: publicar o programa OFT da LayerZero na devnet, ligar ao `SplOftAdapter`
-   na BSC testnet e mandar o token nos dois sentidos. Depois, "Lance seu SPL na BSC" como produto:
+0. Ponte para a Solana: publicar o programa OFT da LayerZero na devnet (modo adaptador, trava e
+   libera), ligar ao `SplOftAdapter` na BSC testnet e mandar o token nos dois sentidos. Depois, "Lance seu SPL na BSC" como produto:
    uma fábrica sem dono que cria mint + cara BEP-20 numa transação (hoje o `setForwarder` é da
    gênese), página para lançar e negociar, revisão de segurança antes da mainnet. Depois: menos custo fixo por instrução (não copiar a imagem entre
    os contratos), prova de fraude com memória em Merkle para a VM v3, exemplo Anchor.
